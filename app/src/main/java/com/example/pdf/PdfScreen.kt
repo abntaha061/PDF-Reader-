@@ -75,10 +75,14 @@ fun PdfAppContent(viewModel: PdfViewModel) {
     
     val context = LocalContext.current
     val pageListState = rememberLazyListState()
-    val activePageIndex = if (currentDoc != null && currentDoc!!.pages.isNotEmpty()) {
-        pageListState.firstVisibleItemIndex.coerceIn(0, currentDoc!!.pages.lastIndex)
-    } else {
-        0
+    val activePageIndex by remember(currentDoc) {
+        derivedStateOf {
+            if (currentDoc != null && currentDoc!!.pages.isNotEmpty()) {
+                pageListState.firstVisibleItemIndex.coerceIn(0, currentDoc!!.pages.lastIndex)
+            } else {
+                0
+            }
+        }
     }
     var customApiKey by remember { mutableStateOf(SecureApiKeyStorage.getApiKey(context)) }
     var showApiKeyDialog by remember { mutableStateOf(false) }
@@ -858,8 +862,9 @@ fun PdfAppContent(viewModel: PdfViewModel) {
                     
                     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
                         val parentWidth = maxWidth
-                        val paddingOffset = 32.dp
-                        val availableWidth = (parentWidth - paddingOffset).value.coerceAtLeast(100f)
+                        val parentWidthValue = parentWidth.value
+                        val widthDpVal = if (parentWidthValue.isFinite() && parentWidthValue > 0f) parentWidthValue else 400f
+                        val availableWidth = (widthDpVal - 32f).coerceIn(100f, 1200f)
                         val firstPage = activeDoc.pages.firstOrNull()
                         val pageStandardWidth = (firstPage?.width ?: 1000).toFloat()
                         val fitScale = availableWidth / pageStandardWidth
