@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.*
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -38,6 +39,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.foundation.text.selection.SelectionContainer
 import java.util.*
 import kotlin.math.roundToInt
 
@@ -72,6 +74,15 @@ fun PdfAppContent(viewModel: PdfViewModel) {
     val currentPlayingAudio by viewModel.currentPlayingAudio.collectAsState()
     
     val context = LocalContext.current
+    val pageListState = rememberLazyListState()
+    val activePageIndex = if (currentDoc != null && currentDoc!!.pages.isNotEmpty()) {
+        pageListState.firstVisibleItemIndex.coerceIn(0, currentDoc!!.pages.lastIndex)
+    } else {
+        0
+    }
+    var customApiKey by remember { mutableStateOf(SecureApiKeyStorage.getApiKey(context)) }
+    var showApiKeyDialog by remember { mutableStateOf(false) }
+
     LaunchedEffect(Unit) {
         viewModel.initTts(context)
         viewModel.initDatabase(context)
@@ -81,6 +92,8 @@ fun PdfAppContent(viewModel: PdfViewModel) {
     var showTextEditDialog by remember { mutableStateOf<Pair<Int, PdfTextBlock>?>(null) }
     var showMetadataDialog by remember { mutableStateOf(false) }
     var showMergeDialog by remember { mutableStateOf(false) }
+    var showTopToolbar by remember { mutableStateOf(true) }
+    var showGeminiSheet by remember { mutableStateOf(false) }
     var showSplitDialog by remember { mutableStateOf(false) }
     var showSecurityDialog by remember { mutableStateOf(false) }
     var showConvertDialog by remember { mutableStateOf(false) }
@@ -843,25 +856,26 @@ fun PdfAppContent(viewModel: PdfViewModel) {
                 } else {
                     val activeDoc = currentDoc!!
                     
-                    Column(modifier = Modifier.fillMaxSize()) {
-                        
-                        // VIEW CONTROL TOOLBAR (Search, Zoom, Watermark)
-                        ViewControlToolCard(
-                            viewModel = viewModel,
-                            searchQuery = searchQuery,
-                            isRegex = isRegexSearch,
-                            resultsSize = searchResults.size,
-                            currentSearchIdx = currentSearchIdx,
-                            zoomScale = zoomScale,
-                            activeAnnotation = activeAnnotation,
-                            onAddWatermarkClick = { showWatermarkDialog = true }
-                        )
+                    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                        val parentWidth = maxWidth
+                        val paddingOffset = 32.dp
+                        val availableWidth = (parentWidth - paddingOffset).value.coerceAtLeast(100f)
+                        val firstPage = activeDoc.pages.firstOrNull()
+                        val pageStandardWidth = (firstPage?.width ?: 1000).toFloat()
+                        val fitScale = availableWidth / pageStandardWidth
+                        val relativeScale = fitScale * zoomScale
 
-                        // ACTIVE CANVAS SHEET PANEL
+                        // 1. IMMERSIVE CANVAS SHEET LAYER
                         Box(
                             modifier = Modifier
-                                .weight(1f)
-                                .fillMaxWidth()
+                                .fillMaxSize()
+                                .clickable(
+                                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                                    indication = null
+                                ) {
+                                    // Toggling UI controls on empty-canvas clicks!
+                                    showTopToolbar = !showTopToolbar
+                                }
                         ) {
                             if (isReflowMode) {
                                 // REFLOW MODE LAYOUT (Optimized scrolling text reading)
@@ -875,106 +889,236 @@ fun PdfAppContent(viewModel: PdfViewModel) {
                             } else {
                                 // PHYSICAL GRID CANVAS SHEET
                                 LazyColumn(
+                                    state = pageListState,
                                     modifier = Modifier.fillMaxSize(),
-                                    contentPadding = PaddingValues(16.dp),
+                                    contentPadding = PaddingValues(
+                                        top = if (showTopToolbar) 190.dp else 24.dp,
+                                        bottom = 100.dp,
+                                        start = 16.dp,
+                                        end = 16.dp
+                                    ),
                                     verticalArrangement = Arrangement.spacedBy(24.dp),
                                     horizontalAlignment = Alignment.CenterHorizontally
                                 ) {
                                     items(activeDoc.pages) { page ->
-                                        PdfPageCanvasItem(
-                                            page = page,
-                                            zoomScale = zoomScale,
-                                            currentPlayingAudio = activeAudioPlaying ?: currentPlayingAudio,
-                                            onPlayAudioAnnotation = { audio ->
-                                                 viewModel.playAudioAnnotation(audio)
-                                                 isAudioLoading = true
-                                                 activeAudioPlaying = audio
-                                                 isAudioPlayingState = true
-                                                 audioProgress = 0f
-                                             },
-                                            isDarkMode = isDarkMode,
-                                            isEditMode = isEditMode,
-                                            selectedTextId = selectedTextId,
-                                            selectedImageId = selectedImageId,
-                                            searchResults = searchResults,
-                                            currentSearchIdx = currentSearchIdx,
-                                            activeAnnotation = activeAnnotation,
-                                            signaturePoints = signaturePoints,
-                                            onTextBlockClick = { block ->
-                                                if (isEditMode) {
-                                                    viewModel.selectTextBlock(block.id)
-                                                    showTextEditDialog = Pair(page.index, block)
-                                                } else {
-                                                    viewModel.selectTextBlock(null)
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .horizontalScroll(rememberScrollState()),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            PdfPageCanvasItem(
+                                                page = page,
+                                                zoomScale = relativeScale,
+                                                currentPlayingAudio = activeAudioPlaying ?: currentPlayingAudio,
+                                                onPlayAudioAnnotation = { audio ->
+                                                     viewModel.playAudioAnnotation(audio)
+                                                     isAudioLoading = true
+                                                     activeAudioPlaying = audio
+                                                     isAudioPlayingState = true
+                                                     audioProgress = 0f
+                                                 },
+                                                isDarkMode = isDarkMode,
+                                                isEditMode = isEditMode,
+                                                selectedTextId = selectedTextId,
+                                                selectedImageId = selectedImageId,
+                                                searchResults = searchResults,
+                                                currentSearchIdx = currentSearchIdx,
+                                                activeAnnotation = activeAnnotation,
+                                                signaturePoints = signaturePoints,
+                                                onTextBlockClick = { block ->
+                                                    if (isEditMode) {
+                                                        viewModel.selectTextBlock(block.id)
+                                                        showTextEditDialog = Pair(page.index, block)
+                                                    } else {
+                                                        viewModel.selectTextBlock(null)
+                                                        when (activeAnnotation) {
+                                                            AnnotationType.HIGHLIGHT -> viewModel.applyHighlightOnText(page.index, block)
+                                                            AnnotationType.UNDERLINE -> viewModel.applyUnderlineOnText(page.index, block)
+                                                            AnnotationType.STRIKETHROUGH -> viewModel.applyStrikethroughOnText(page.index, block)
+                                                            AnnotationType.SQUIGGLY -> viewModel.applySquigglyOnText(page.index, block)
+                                                            else -> {}
+                                                        }
+                                                    }
+                                                },
+                                                onImageBlockClick = { imageBlock ->
+                                                    if (isEditMode) {
+                                                        viewModel.selectImageBlock(imageBlock.id)
+                                                    }
+                                                },
+                                                onHighlightWordClick = { block ->
+                                                    viewModel.applyHighlightOnText(page.index, block)
+                                                },
+                                                onPageCanvasInteractiveDrag = { x, y ->
+                                                    // Used for signatures
+                                                    if (activeAnnotation == AnnotationType.SIGNATURE) {
+                                                        viewModel.updateSignatureStroke(signaturePoints + Pair(x, y))
+                                                    }
+                                                },
+                                                onPageDragRelease = {
+                                                    if (activeAnnotation == AnnotationType.SIGNATURE) {
+                                                        viewModel.applySignatureOnPage(page.index)
+                                                    }
+                                                },
+                                                onPageActionClick = { x, y ->
                                                     when (activeAnnotation) {
-                                                        AnnotationType.HIGHLIGHT -> viewModel.applyHighlightOnText(page.index, block)
-                                                        AnnotationType.UNDERLINE -> viewModel.applyUnderlineOnText(page.index, block)
-                                                        AnnotationType.STRIKETHROUGH -> viewModel.applyStrikethroughOnText(page.index, block)
-                                                        AnnotationType.SQUIGGLY -> viewModel.applySquigglyOnText(page.index, block)
+                                                        AnnotationType.STAMP -> {
+                                                            viewModel.applyStampOnPage(page.index, x, y, "APPROVED")
+                                                        }
+                                                        AnnotationType.NOTE -> {
+                                                            viewModel.applyTextNoteOnPage(page.index, x, y, "Note added on standard canvas.")
+                                                        }
+                                                        AnnotationType.GEOMETRY -> {
+                                                            viewModel.applyGeometryOnPage(page.index, x, y, 160f, 120f)
+                                                        }
+                                                        AnnotationType.MEASURING -> {
+                                                            viewModel.applyMeasuringOnPage(page.index, x, y, x + 180f, y + 120f)
+                                                        }
                                                         else -> {}
                                                     }
+                                                },
+                                                onImageRotateRequested = { blockId ->
+                                                    viewModel.manipulateSelectedImage(page.index, blockId, 90f, 1f)
+                                                },
+                                                onImageScaleRequested = { blockId, up ->
+                                                    viewModel.manipulateSelectedImage(page.index, blockId, 0f, if (up) 1.2f else 0.8f)
+                                                },
+                                                onAddHyperlinkRequested = { label, url, x, y ->
+                                                    viewModel.addHyperlink(page.index, label, url, x, y)
+                                                },
+                                                onFormFieldUpdated = { fieldId, newValue ->
+                                                    viewModel.updateFormField(page.index, fieldId, newValue)
                                                 }
-                                            },
-                                            onImageBlockClick = { imageBlock ->
-                                                if (isEditMode) {
-                                                    viewModel.selectImageBlock(imageBlock.id)
-                                                }
-                                            },
-                                            onHighlightWordClick = { block ->
-                                                viewModel.applyHighlightOnText(page.index, block)
-                                            },
-                                            onPageCanvasInteractiveDrag = { x, y ->
-                                                // Used for signatures
-                                                if (activeAnnotation == AnnotationType.SIGNATURE) {
-                                                    viewModel.updateSignatureStroke(signaturePoints + Pair(x, y))
-                                                }
-                                            },
-                                            onPageDragRelease = {
-                                                if (activeAnnotation == AnnotationType.SIGNATURE) {
-                                                    viewModel.applySignatureOnPage(page.index)
-                                                }
-                                            },
-                                            onPageActionClick = { x, y ->
-                                                when (activeAnnotation) {
-                                                    AnnotationType.STAMP -> {
-                                                        viewModel.applyStampOnPage(page.index, x, y, "APPROVED")
-                                                    }
-                                                    AnnotationType.NOTE -> {
-                                                        viewModel.applyTextNoteOnPage(page.index, x, y, "Note added on standard canvas.")
-                                                    }
-                                                    AnnotationType.GEOMETRY -> {
-                                                        viewModel.applyGeometryOnPage(page.index, x, y, 160f, 120f)
-                                                    }
-                                                    AnnotationType.MEASURING -> {
-                                                        viewModel.applyMeasuringOnPage(page.index, x, y, x + 180f, y + 120f)
-                                                    }
-                                                    else -> {}
-                                                }
-                                            },
-                                            onImageRotateRequested = { blockId ->
-                                                viewModel.manipulateSelectedImage(page.index, blockId, 90f, 1f)
-                                            },
-                                            onImageScaleRequested = { blockId, up ->
-                                                viewModel.manipulateSelectedImage(page.index, blockId, 0f, if (up) 1.2f else 0.8f)
-                                            },
-                                            onAddHyperlinkRequested = { label, url, x, y ->
-                                                viewModel.addHyperlink(page.index, label, url, x, y)
-                                            },
-                                            onFormFieldUpdated = { fieldId, newValue ->
-                                                viewModel.updateFormField(page.index, fieldId, newValue)
-                                            }
-                                        )
+                                            )
+                                        }
                                     }
                                 }
                             }
                         }
 
-                        // AI CO-PILOT ASSISTANCE FOOTER INTERFACE (Gemini Summaries & OCR panel)
-                        GeminiAssistantBottomPanel(
-                            viewModel = viewModel,
-                            isGeminiLoading = isGeminiLoading,
-                            geminiResult = geminiResult
-                        )
+                        // 2. OVERLAY CONTROLS - FLOATING/COLLAPSIBLE SEARCH BAR & TOOLBAR (At Top)
+                        AnimatedVisibility(
+                            visible = showTopToolbar,
+                            enter = slideInVertically(initialOffsetY = { -it }) + fadeIn(),
+                            exit = slideOutVertically(targetOffsetY = { -it }) + fadeOut(),
+                            modifier = Modifier.align(Alignment.TopCenter)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(
+                                        brush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                                            colors = listOf(
+                                                (if (isDarkMode) Color(0xFF0F172A) else Color(0xFFF3F4F9)).copy(alpha = 0.96f),
+                                                (if (isDarkMode) Color(0xFF0F172A) else Color(0xFFF3F4F9)).copy(alpha = 0.88f),
+                                                Color.Transparent
+                                            )
+                                        )
+                                    )
+                                    .padding(bottom = 12.dp)
+                            ) {
+                                ViewControlToolCard(
+                                    viewModel = viewModel,
+                                    searchQuery = searchQuery,
+                                    isRegex = isRegexSearch,
+                                    resultsSize = searchResults.size,
+                                    currentSearchIdx = currentSearchIdx,
+                                    zoomScale = zoomScale,
+                                    activeAnnotation = activeAnnotation,
+                                    onAddWatermarkClick = { showWatermarkDialog = true }
+                                )
+                            }
+                        }
+
+                        // 3. FLOATING BADGES & TRIGGER CONTROLS (At Bottom Right)
+                        Column(
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(16.dp)
+                                .navigationBarsPadding(),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                            horizontalAlignment = Alignment.End
+                        ) {
+                            // Transparent glassy page status badge
+                            Box(
+                                modifier = Modifier
+                                    .background(
+                                        color = if (isDarkMode) Color(0xFF1E293B).copy(alpha = 0.85f) else Color.White.copy(alpha = 0.85f),
+                                        shape = RoundedCornerShape(20.dp)
+                                    )
+                                    .border(
+                                        1.dp,
+                                        if (isDarkMode) Color(0xFF334155) else Color(0xFFE2E8F0),
+                                        shape = RoundedCornerShape(20.dp)
+                                    )
+                                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                            ) {
+                                Text(
+                                    text = "${activePageIndex + 1}/${activeDoc.pages.size} صفحة",
+                                    fontSize = 12.sp,
+                                    color = if (isDarkMode) Color.LightGray else Color(0xFF1E293B),
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+
+                            // Immersive full-canvas reader toggle floating button
+                            FloatingActionButton(
+                                onClick = { showTopToolbar = !showTopToolbar },
+                                containerColor = if (isDarkMode) Color(0xFF334155) else Color.White,
+                                contentColor = if (isDarkMode) Color.White else Color(0xFF1E293B),
+                                modifier = Modifier.size(46.dp),
+                                shape = CircleShape
+                            ) {
+                                Icon(
+                                    imageVector = if (showTopToolbar) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                                    contentDescription = "Toggle UI",
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+
+                            // EXPANDABLE GOOGLE GEMINI AI FAB PANEL TRIGGER
+                            ExtendedFloatingActionButton(
+                                onClick = { showGeminiSheet = true },
+                                containerColor = Color(0xFFC62828),
+                                contentColor = Color.White,
+                                icon = {
+                                    Icon(
+                                        imageVector = Icons.Filled.AutoAwesome,
+                                        contentDescription = "AI Co-pilot",
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                },
+                                text = {
+                                    Text("AI Co-Pilot", fontWeight = FontWeight.Bold)
+                                }
+                            )
+                        }
+
+                        // 4. NATIVE MATERIAL 3 MODAL BOTTOM SHEET FOR GEMINI CO-PILOT
+                        if (showGeminiSheet) {
+                            ModalBottomSheet(
+                                onDismissRequest = { showGeminiSheet = false },
+                                sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+                                containerColor = if (isDarkMode) Color(0xFF0F172A) else Color.White,
+                                scrimColor = Color.Black.copy(alpha = 0.45f)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .navigationBarsPadding()
+                                        .padding(bottom = 16.dp)
+                                ) {
+                                    GeminiAssistantBottomPanel(
+                                        viewModel = viewModel,
+                                        isGeminiLoading = isGeminiLoading,
+                                        geminiResult = geminiResult,
+                                        savedApiKey = customApiKey,
+                                        activePageIndex = activePageIndex,
+                                        onConfigureApiKeyClick = { showApiKeyDialog = true }
+                                    )
+                                }
+                            }
+                        }
                     }
 
                     // --- Black Web-Loading Overlay ---
@@ -1824,7 +1968,7 @@ fun PdfAppContent(viewModel: PdfViewModel) {
                         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             FilledTonalButton(
                                 onClick = {
-                                    viewModel.askGeminiToOcrMock(null)
+                                    viewModel.askGeminiToOcr(context, customApiKey, activePageIndex, null)
                                 },
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(8.dp),
@@ -1838,7 +1982,7 @@ fun PdfAppContent(viewModel: PdfViewModel) {
                             FilledTonalButton(
                                 onClick = {
                                     val b = Bitmap.createBitmap(400, 400, Bitmap.Config.ARGB_8888)
-                                    viewModel.askGeminiToOcrMock(b)
+                                    viewModel.askGeminiToOcr(context, customApiKey, activePageIndex, b)
                                 },
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(8.dp),
@@ -1857,6 +2001,98 @@ fun PdfAppContent(viewModel: PdfViewModel) {
                             viewModel.dismissGeminiPanel()
                         }) {
                             Text("إغلاق")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 10.1 Gemini API Key Config Dialog
+    if (showApiKeyDialog) {
+        var tempKeyText by remember { mutableStateOf(customApiKey) }
+        var isPasswordVisible by remember { mutableStateOf(false) }
+
+        Dialog(onDismissRequest = { showApiKeyDialog = false }) {
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = if (isDarkMode) Color(0xFF1E293B) else Color.White),
+                modifier = Modifier.fillMaxWidth(0.95f)
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Filled.VpnKey, contentDescription = null, tint = Color(0xFFC62828), modifier = Modifier.size(24.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            "إعداد مفتاح Gemini API Key",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isDarkMode) Color.White else Color(0xFF0F172A)
+                        )
+                    }
+
+                    Text(
+                        "برجاء إدخال مفتاح Google Gemini API الخاص بك لتتمكن من استخدام ميزات الذكاء الاصطناعي الفعلي (OCR، الترجمة والتلخيص) بشكل مباشر غير محدود وبسرية تامة.",
+                        fontSize = 13.sp,
+                        color = Color.Gray,
+                        lineHeight = 18.sp
+                    )
+
+                    OutlinedTextField(
+                        value = tempKeyText,
+                        onValueChange = { tempKeyText = it },
+                        label = { Text("Gemini API Key") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        placeholder = { Text("AIzaSy...") },
+                        visualTransformation = if (isPasswordVisible) androidx.compose.ui.text.input.VisualTransformation.None else PasswordVisualTransformation(),
+                        trailingIcon = {
+                            IconButton(onClick = { isPasswordVisible = !isPasswordVisible }) {
+                                Icon(
+                                    imageVector = if (isPasswordVisible) Icons.Filled.Visibility else Icons.Filled.VisibilityOff,
+                                    contentDescription = "Toggle Visibility"
+                                )
+                            }
+                        },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Color(0xFFC62828),
+                            focusedLabelColor = Color(0xFFC62828)
+                        )
+                    )
+
+                    Text(
+                        "• يتم تشفير وحفظ المفتاح محلياً على جهازك بشكل آمن مشفر (AES-128) ولا يتم مشاركته مع أي خوادم خارجية.\n• إذا تركته فارغاً، سيحاول التطبيق تشغيل المفتاح المجاني الافتراضي التابع لـ AI Studio.",
+                        fontSize = 12.sp,
+                        color = Color.Gray,
+                        lineHeight = 16.sp
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
+                    ) {
+                        TextButton(onClick = { 
+                            showApiKeyDialog = false 
+                        }) {
+                            Text("إلغاء", color = Color.Gray)
+                        }
+
+                        Button(
+                            onClick = {
+                                SecureApiKeyStorage.saveApiKey(context, tempKeyText)
+                                customApiKey = tempKeyText.trim()
+                                showApiKeyDialog = false
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828)),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("حفظ المفتاح بأمان", color = Color.White)
                         }
                     }
                 }
@@ -2948,9 +3184,13 @@ fun PdfPageCanvasItem(
 fun GeminiAssistantBottomPanel(
     viewModel: PdfViewModel,
     isGeminiLoading: Boolean,
-    geminiResult: String?
+    geminiResult: String?,
+    savedApiKey: String,
+    activePageIndex: Int,
+    onConfigureApiKeyClick: () -> Unit
 ) {
     val dark = isSystemInDarkTheme()
+    val context = LocalContext.current
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -2983,6 +3223,29 @@ fun GeminiAssistantBottomPanel(
                     fontWeight = FontWeight.ExtraBold,
                     color = if (dark) Color.White else Color(0xFF0F172A)
                 )
+                if (savedApiKey.isNotBlank()) {
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "(Active Custom Key)",
+                        fontSize = 10.sp,
+                        color = Color(0xFF2E7D32),
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                Spacer(modifier = Modifier.weight(1f))
+
+                IconButton(
+                    onClick = onConfigureApiKeyClick,
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        Icons.Filled.Settings,
+                        contentDescription = "Configure API Key",
+                        tint = if (dark) Color.LightGray else Color(0xFF475569),
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -2994,7 +3257,7 @@ fun GeminiAssistantBottomPanel(
             ) {
                 // Action 1: Summarize
                 Button(
-                    onClick = { viewModel.askGeminiToSummarize() },
+                    onClick = { viewModel.askGeminiToSummarize(savedApiKey, activePageIndex) },
                     modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = if (dark) Color(0xFF121B2A) else Color(0xFFF1F5F9),
@@ -3023,7 +3286,7 @@ fun GeminiAssistantBottomPanel(
 
                 // Action 2: Translate
                 Button(
-                    onClick = { viewModel.askGeminiToTranslate("Arabic") },
+                    onClick = { viewModel.askGeminiToTranslate(savedApiKey, "Arabic", activePageIndex) },
                     modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = if (dark) Color(0xFF2E1B4E) else Color(0xFFFAF5FF),
@@ -3052,7 +3315,7 @@ fun GeminiAssistantBottomPanel(
 
                 // Action 3: Optical OCR
                 Button(
-                    onClick = { viewModel.askGeminiToOcrMock(null) },
+                    onClick = { viewModel.askGeminiToOcr(context, savedApiKey, activePageIndex, null) },
                     modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = if (dark) Color(0xFF3B1E1E) else Color(0xFFFFF1F2),
@@ -3139,12 +3402,14 @@ fun GeminiAssistantBottomPanel(
                             }
                         }
                         Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = geminiResult,
-                            fontSize = 13.sp,
-                            lineHeight = 18.sp,
-                            color = if (dark) Color.White else Color.Black
-                        )
+                        SelectionContainer {
+                            Text(
+                                text = geminiResult,
+                                fontSize = 13.sp,
+                                lineHeight = 18.sp,
+                                color = if (dark) Color.White else Color.Black
+                            )
+                        }
                     }
                 }
             }

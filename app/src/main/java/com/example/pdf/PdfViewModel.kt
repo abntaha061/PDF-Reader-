@@ -939,45 +939,66 @@ class PdfViewModel : ViewModel() {
     }
 
     // --- AI Assistance Module ---
-    fun askGeminiToSummarize() {
+    fun askGeminiToSummarize(apiKey: String, pageIndex: Int) {
         val current = _currentDocument.value ?: return
-        val allText = current.pages.firstOrNull()?.textBlocks?.joinToString("\n") { it.text } ?: ""
+        val page = current.pages.getOrNull(pageIndex) ?: current.pages.firstOrNull() ?: return
+        val allText = page.textBlocks.joinToString("\n") { it.text }
         if (allText.isEmpty()) {
-            _geminiResult.value = "Document page contains no indexable texts."
+            _geminiResult.value = "محتوى الصفحة فارغ ولا يحتوي على نصوص قابلة للتلخيص."
             return
         }
 
         _isGeminiLoading.value = true
         _geminiResult.value = null
         viewModelScope.launch {
-            val response = GeminiOcrEngine.summarizeText(allText)
+            val response = GeminiOcrEngine.summarizeText(apiKey, allText)
             _geminiResult.value = response
             _isGeminiLoading.value = false
         }
     }
 
-    fun askGeminiToTranslate(targetLang: String) {
+    fun askGeminiToTranslate(apiKey: String, targetLang: String, pageIndex: Int) {
         val current = _currentDocument.value ?: return
-        val allText = current.pages.firstOrNull()?.textBlocks?.joinToString("\n") { it.text } ?: ""
-        if (allText.isEmpty()) return
+        val page = current.pages.getOrNull(pageIndex) ?: current.pages.firstOrNull() ?: return
+        val allText = page.textBlocks.joinToString("\n") { it.text }
+        if (allText.isEmpty()) {
+            _geminiResult.value = "محتوى الصفحة فارغ ولا يحتوي على نصوص قابلة للترجمة."
+            return
+        }
 
         _isGeminiLoading.value = true
         _geminiResult.value = null
         viewModelScope.launch {
-            val response = GeminiOcrEngine.translateText(allText, targetLang)
+            val response = GeminiOcrEngine.translateText(apiKey, allText, targetLang)
             _geminiResult.value = response
             _isGeminiLoading.value = false
         }
     }
 
-    fun askGeminiToOcrMock(mockImageBitmap: Bitmap?) {
+    fun askGeminiToOcr(context: Context, apiKey: String, pageIndex: Int, imageBitmap: Bitmap?) {
         _isGeminiLoading.value = true
         _geminiResult.value = null
         viewModelScope.launch {
-            val response = if (mockImageBitmap != null) {
-                GeminiOcrEngine.performOcr(mockImageBitmap)
-            } else {
-                "OCR Sample Simulation (No real image loaded):\nExtracted Title: COMPREHENSIVE PDF STUDY\nLines extracted successfully: True"
+            val response = try {
+                val finalBitmap = if (imageBitmap != null) {
+                    imageBitmap
+                } else {
+                    val current = _currentDocument.value
+                    val page = current?.pages?.getOrNull(pageIndex) ?: current?.pages?.firstOrNull()
+                    if (page != null) {
+                        PdfEngine.renderPageToBitmap(page, context)
+                    } else {
+                        null
+                    }
+                }
+
+                if (finalBitmap != null) {
+                    GeminiOcrEngine.performOcr(apiKey, finalBitmap)
+                } else {
+                    "لا يوجد ملف PDF نشط أو صورة صالحة للقيام بعملية الـ OCR."
+                }
+            } catch (e: Exception) {
+                "OCR Error: ${e.localizedMessage}"
             }
             _geminiResult.value = response
             _isGeminiLoading.value = false

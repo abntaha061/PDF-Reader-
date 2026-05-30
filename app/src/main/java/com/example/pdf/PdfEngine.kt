@@ -1177,4 +1177,67 @@ object PdfEngine {
             )
         )
     }
+
+    /**
+     * Renders a virtual PDF page into a physical image Bitmap for real AI multimodal processing/OCR.
+     */
+    fun renderPageToBitmap(page: PdfPage, context: Context): Bitmap {
+        val scale = 0.6f
+        val w = (page.width * scale).toInt().coerceAtLeast(100)
+        val h = (page.height * scale).toInt().coerceAtLeast(100)
+        val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        
+        // Background
+        val bgPaint = Paint().apply {
+            color = android.graphics.Color.WHITE
+            style = Paint.Style.FILL
+        }
+        canvas.drawRect(0f, 0f, w.toFloat(), h.toFloat(), bgPaint)
+        
+        // Draw image blocks
+        page.imageBlocks.forEach { block ->
+            var img: Bitmap? = block.imageBitmap
+            if (img == null && block.imageResId != null) {
+                try {
+                    img = android.graphics.BitmapFactory.decodeResource(context.resources, block.imageResId)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+            if (img != null) {
+                val srcRect = Rect(0, 0, img.width, img.height)
+                val dstRect = RectF(
+                    block.x * scale,
+                    block.y * scale,
+                    (block.x + block.width) * scale,
+                    (block.y + block.height) * scale
+                )
+                
+                canvas.save()
+                canvas.rotate(block.rotation, dstRect.centerX(), dstRect.centerY())
+                canvas.drawBitmap(img, srcRect, dstRect, null)
+                canvas.restore()
+            }
+        }
+
+        // Draw text blocks
+        val textPaint = Paint().apply {
+            color = android.graphics.Color.BLACK
+            textSize = 14f * scale * 2f
+            isAntiAlias = true
+            typeface = android.graphics.Typeface.DEFAULT
+        }
+        
+        page.textBlocks.forEach { block ->
+            val parts = block.text.split("\n")
+            var currentY = block.y * scale + (18f * scale)
+            parts.forEach { part ->
+                canvas.drawText(part, block.x * scale, currentY, textPaint)
+                currentY += 20f * scale
+            }
+        }
+
+        return bitmap
+    }
 }

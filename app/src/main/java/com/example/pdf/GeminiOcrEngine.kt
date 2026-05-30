@@ -53,13 +53,25 @@ object GeminiOcrEngine {
         return Base64.encodeToString(outputStream.toByteArray(), Base64.NO_WRAP)
     }
 
+    private fun getEffectiveApiKey(userKey: String): String {
+        val trimmed = userKey.trim()
+        if (trimmed.isNotEmpty() && trimmed != "MY_GEMINI_API_KEY") {
+            return trimmed
+        }
+        val defaultKey = BuildConfig.GEMINI_API_KEY
+        if (defaultKey.isNotEmpty() && defaultKey != "MY_GEMINI_API_KEY") {
+            return defaultKey
+        }
+        return ""
+    }
+
     /**
      * Executes intelligent OCR (Optical Character Recognition) on an image
      */
-    suspend fun performOcr(bitmap: Bitmap): String = withContext(Dispatchers.IO) {
-        val apiKey = BuildConfig.GEMINI_API_KEY
-        if (apiKey.isEmpty() || apiKey == "MY_GEMINI_API_KEY") {
-            return@withContext "API Key is missing! Please configure GEMINI_API_KEY to run actual multimodal OCR."
+    suspend fun performOcr(userKey: String, bitmap: Bitmap): String = withContext(Dispatchers.IO) {
+        val apiKey = getEffectiveApiKey(userKey)
+        if (apiKey.isEmpty()) {
+            return@withContext "مفتاح API غير متوفر! يرجى إضافة مفتاح Gemini الخاص بك بالضغط على زر الإعدادات الموجود أعلى لوحة الكوبيلوت لتتمكن من استخدام ميزة الـ OCR الفعلية."
         }
 
         try {
@@ -70,7 +82,7 @@ object GeminiOcrEngine {
             }
 
             val textPart = JSONObject().apply {
-                put("text", "You are a professional PDF OCR agent. Extract and digitize every word of text exactly as written in this image. Write the extracted text explicitly.")
+                put("text", "You are an expert OCR and document digitizing system. Please read the text in this document image and output it exactly. Preserve formatting, paragraphs, and list numbering where possible. Do not include any meta comments or introductory phrases, just output the extracted text.")
             }
 
             val imagePart = JSONObject().apply {
@@ -94,22 +106,22 @@ object GeminiOcrEngine {
             extractTextFromResponse(jsonResponse)
         } catch (e: Exception) {
             e.printStackTrace()
-            "OCR Action Failed: ${e.message ?: "Connection Error"}"
+            "فشل التعرف الضوئي OCR: ${e.message ?: "حدث خطأ أثناء الاتصال بخوادم ريبون لـ Gemini API."}"
         }
     }
 
     /**
      * Executes intelligent page summaries on active text blocks
      */
-    suspend fun summarizeText(text: String): String = withContext(Dispatchers.IO) {
-        val apiKey = BuildConfig.GEMINI_API_KEY
-        if (apiKey.isEmpty() || apiKey == "MY_GEMINI_API_KEY") {
-            return@withContext "مفتاح API غير متوفر! أضف مفتاح Gemini الخاص بك في لوحة الأسرار (Secrets).\n\nملخص محلي للمستند:\n- يوفر التطبيق ميزات دمج وتقسيم ملفات PDF بالكامل.\n- تحرير نصوص PDF الأصلية مع تغيير الخط واللون والحجم.\n- دعم حماية الملف بعبارة مرور وتوقيع الكتروني تفاعلي.\n- نمط Reflow للقراءة الذكية المريحة على الشاشات الصغيرة."
+    suspend fun summarizeText(userKey: String, text: String): String = withContext(Dispatchers.IO) {
+        val apiKey = getEffectiveApiKey(userKey)
+        if (apiKey.isEmpty()) {
+            return@withContext "مفتاح API غير متوفر! يرجى إضافة مفتاح Gemini الخاص بك بالضغط على زر الإعدادات في لوحة الكوبايلوت.\n\nلمحة سريعة عن الصفحة:\n- تحتوي هذه الصفحة على نصوص PDF الهامة.\n- قم بإعداد مفتاح API للحصول على تلخيص فوري دقيق ومفصل بالذكاء الاصطناعي."
         }
 
         try {
             val systemPart = JSONObject().apply {
-                put("text", "Please write a concise professional summary in standard Arabic formatting (نقاط ملخصة واضحة ودقيقة) outlining the main points of this document:\n\n$text")
+                put("text", "قم بكتابة ملخص احترافي دقيق وواضح باللغة العربية الفصحى على شكل نقاط واضحة ومفهومة للمستند والنصوص التالية:\n\n$text")
             }
 
             val contentObj = JSONObject().apply {
@@ -136,15 +148,15 @@ object GeminiOcrEngine {
     /**
      * Translates deep text blocks with prompt guidelines
      */
-    suspend fun translateText(text: String, targetLanguage: String): String = withContext(Dispatchers.IO) {
-        val apiKey = BuildConfig.GEMINI_API_KEY
-        if (apiKey.isEmpty() || apiKey == "MY_GEMINI_API_KEY") {
-            return@withContext "مفتاح API غير متوفر! يرجى إضافته.\n\n[ترجمة افتراضية]:\nArabic Title: دليل البدء السريع PDF Reader\n- للتعديل على أي نص، اضغط مطولاً على النص للدخول إلى وضع التعديل وتغيير اللون والحجم.\n- لحماية الملف، اختر كلمة مرور حماية."
+    suspend fun translateText(userKey: String, text: String, targetLanguage: String): String = withContext(Dispatchers.IO) {
+        val apiKey = getEffectiveApiKey(userKey)
+        if (apiKey.isEmpty()) {
+            return@withContext "مفتاح API غير متوفر! يرجى إضافة مفتاح Gemini الخاص بك بالضغط على زر الإعدادات في لوحة الكوبايلوت.\n\nلمحة سريعة عن الصفحة:\n- تحتوي هذه الصفحة على نصوص باللغة الأصلية.\n- قم بإعداد مفتاح API للحصول على ترجمة فورية دقيقة ومتقنة بكافة تفاصيلها."
         }
 
         try {
             val instructPart = JSONObject().apply {
-                put("text", "Translate the following text professionally to $targetLanguage. Keep form details intact:\n\n$text")
+                put("text", "Translate the following text professionally to $targetLanguage. Keep all original terms, structural details, and formatting intact:\n\n$text")
             }
 
             val contentObj = JSONObject().apply {
