@@ -40,6 +40,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import java.util.*
 import kotlin.math.roundToInt
 
@@ -75,6 +78,13 @@ fun PdfAppContent(viewModel: PdfViewModel) {
     
     val context = LocalContext.current
     val pageListState = rememberLazyListState()
+    val fileLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            viewModel.openDocumentFromUri(context, uri)
+        }
+    }
     val activePageIndex by remember(currentDoc) {
         derivedStateOf {
             if (currentDoc != null && currentDoc!!.pages.isNotEmpty()) {
@@ -285,6 +295,21 @@ fun PdfAppContent(viewModel: PdfViewModel) {
                         )
                     )
                 }
+            },
+            floatingActionButton = {
+                ExtendedFloatingActionButton(
+                    text = { Text("فتح ملف PDF", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp) },
+                    icon = { Icon(Icons.Filled.FolderOpen, contentDescription = "Open Document", tint = Color.White) },
+                    onClick = {
+                        try {
+                            fileLauncher.launch(arrayOf("application/pdf"))
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    },
+                    containerColor = Color(0xFFC62828),
+                    modifier = Modifier.padding(bottom = 12.dp, end = 4.dp)
+                )
             }
         ) { innerPadding ->
             Box(
@@ -713,116 +738,12 @@ fun PdfAppContent(viewModel: PdfViewModel) {
         }
     ) {
         Scaffold(
-            topBar = {
-                TopAppBar(
-                    title = {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(vertical = 4.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .background(Color(0xFFC62828), RoundedCornerShape(10.dp))
-                                    .padding(6.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.MenuBook,
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column {
-                                Text(
-                                    text = currentDoc?.name ?: "PDF Reader",
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (isDarkMode) Color.White else Color(0xFF0F172A),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    text = "PRO SUITE",
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    color = if (isDarkMode) Color.LightGray else Color(0xFF64748B),
-                                    letterSpacing = 1.5.sp
-                                )
-                            }
-                        }
-                    },
-                    navigationIcon = {
-                        IconButton(onClick = {
-                            viewModel.closeDocument()
-                        }) {
-                            Icon(Icons.Filled.ArrowBack, contentDescription = "رجوع")
-                        }
-                    },
-                    actions = {
-                        IconButton(onClick = {
-                            scope.launch {
-                                drawerState.open()
-                            }
-                        }) {
-                            Icon(Icons.Filled.Menu, contentDescription = "سجل الملفات")
-                        }
-
-                        // Intelligent Action Toggles
-                        IconButton(
-                            onClick = { viewModel.toggleDarkMode() },
-                            colors = IconButtonDefaults.iconButtonColors(
-                                contentColor = if (isDarkMode) Color(0xFFC62828) else MaterialTheme.colorScheme.onSurface
-                            )
-                        ) {
-                            Icon(
-                                if (isDarkMode) Icons.Outlined.LightMode else Icons.Outlined.DarkMode,
-                                contentDescription = "Invert Dark Mode"
-                            )
-                        }
-
-                        IconButton(
-                            onClick = { viewModel.toggleReflowMode() },
-                            colors = IconButtonDefaults.iconButtonColors(
-                                contentColor = if (isReflowMode) Color(0xFFC62828) else MaterialTheme.colorScheme.onSurface
-                            )
-                        ) {
-                            Icon(Icons.Filled.TextFormat, contentDescription = "Reflow Mode Text")
-                        }
-
-                        IconButton(
-                            onClick = { viewModel.setEditMode(!isEditMode) },
-                            colors = IconButtonDefaults.iconButtonColors(
-                                contentColor = if (isEditMode) Color(0xFFC62828) else MaterialTheme.colorScheme.onSurface
-                            )
-                        ) {
-                            Icon(
-                                if (isEditMode) Icons.Filled.EditOff else Icons.Filled.Edit,
-                                contentDescription = "Toggle Edit Content"
-                            )
-                        }
-
-                        IconButton(onClick = { showMetadataDialog = true }) {
-                            Icon(Icons.Filled.Info, contentDescription = "Info Metadata")
-                        }
-
-                        IconButton(onClick = { showSecurityDialog = true }) {
-                            Icon(Icons.Filled.Security, contentDescription = "Security password")
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = if (isDarkMode) Color(0xFF1E293B) else Color.White,
-                        titleContentColor = if (isDarkMode) Color.White else Color(0xFF0F172A)
-                    )
-                )
-            }
+            // topBar removed to make the layout immersive under status bar
         ) { innerPadding ->
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(innerPadding)
+                    .padding(bottom = innerPadding.calculateBottomPadding())
                     .background(if (isDarkMode) Color(0xFF0F172A) else Color(0xFFF3F4F9))
             ) {
                 if (isLocked) {
@@ -859,6 +780,21 @@ fun PdfAppContent(viewModel: PdfViewModel) {
                     }
                 } else {
                     val activeDoc = currentDoc!!
+                    val nestedScrollConnection = remember {
+                        object : androidx.compose.ui.input.nestedscroll.NestedScrollConnection {
+                            override fun onPreScroll(
+                                available: androidx.compose.ui.geometry.Offset,
+                                source: androidx.compose.ui.input.nestedscroll.NestedScrollSource
+                            ): androidx.compose.ui.geometry.Offset {
+                                if (available.y < -15f) {
+                                    showTopToolbar = false
+                                } else if (available.y > 15f) {
+                                    showTopToolbar = true
+                                }
+                                return androidx.compose.ui.geometry.Offset.Zero
+                            }
+                        }
+                    }
                     
                     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
                         val parentWidth = maxWidth
@@ -866,7 +802,7 @@ fun PdfAppContent(viewModel: PdfViewModel) {
                         val widthDpVal = if (parentWidthValue.isFinite() && parentWidthValue > 0f) parentWidthValue else 400f
                         val availableWidth = (widthDpVal - 32f).coerceIn(100f, 1200f)
                         val firstPage = activeDoc.pages.firstOrNull()
-                        val pageStandardWidth = (firstPage?.width ?: 1000).toFloat()
+                        val pageStandardWidth = (firstPage?.width ?: 1000).toFloat().coerceAtLeast(1f)
                         val fitScale = availableWidth / pageStandardWidth
                         val relativeScale = fitScale * zoomScale
 
@@ -895,9 +831,11 @@ fun PdfAppContent(viewModel: PdfViewModel) {
                                 // PHYSICAL GRID CANVAS SHEET
                                 LazyColumn(
                                     state = pageListState,
-                                    modifier = Modifier.fillMaxSize(),
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .nestedScroll(nestedScrollConnection),
                                     contentPadding = PaddingValues(
-                                        top = if (showTopToolbar) 190.dp else 24.dp,
+                                        top = if (showTopToolbar) 310.dp else 40.dp,
                                         bottom = 100.dp,
                                         start = 16.dp,
                                         end = 16.dp
@@ -1008,20 +946,142 @@ fun PdfAppContent(viewModel: PdfViewModel) {
                             exit = slideOutVertically(targetOffsetY = { -it }) + fadeOut(),
                             modifier = Modifier.align(Alignment.TopCenter)
                         ) {
-                            Box(
+                            Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .background(
                                         brush = androidx.compose.ui.graphics.Brush.verticalGradient(
                                             colors = listOf(
-                                                (if (isDarkMode) Color(0xFF0F172A) else Color(0xFFF3F4F9)).copy(alpha = 0.96f),
-                                                (if (isDarkMode) Color(0xFF0F172A) else Color(0xFFF3F4F9)).copy(alpha = 0.88f),
+                                                (if (isDarkMode) Color(0xFF0F172A) else Color(0xFFF3F4F9)).copy(alpha = 0.98f),
+                                                (if (isDarkMode) Color(0xFF0F172A) else Color(0xFFF3F4F9)).copy(alpha = 0.95f),
+                                                (if (isDarkMode) Color(0xFF0F172A) else Color(0xFFF3F4F9)).copy(alpha = 0.82f),
                                                 Color.Transparent
                                             )
                                         )
                                     )
+                                    .statusBarsPadding()
                                     .padding(bottom = 12.dp)
                             ) {
+                                // Unified Sleek Glassy TopAppBar
+                                TopAppBar(
+                                    title = {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.padding(vertical = 4.dp)
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(36.dp)
+                                                    .background(Color(0xFFC62828), RoundedCornerShape(10.dp))
+                                                    .padding(6.dp),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Filled.MenuBook,
+                                                    contentDescription = null,
+                                                    tint = Color.White,
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                            }
+                                            Spacer(modifier = Modifier.width(10.dp))
+                                            Column {
+                                                Text(
+                                                    text = currentDoc?.name ?: "PDF Reader",
+                                                    fontSize = 16.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = if (isDarkMode) Color.White else Color(0xFF0F172A),
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                                Text(
+                                                    text = "PRO SUITE",
+                                                    fontSize = 9.sp,
+                                                    fontWeight = FontWeight.ExtraBold,
+                                                    color = if (isDarkMode) Color.LightGray else Color(0xFF64748B),
+                                                    letterSpacing = 1.5.sp
+                                                )
+                                            }
+                                        }
+                                    },
+                                    navigationIcon = {
+                                        IconButton(onClick = {
+                                            viewModel.closeDocument()
+                                        }) {
+                                            Icon(
+                                                imageVector = Icons.Filled.ArrowBack,
+                                                contentDescription = "رجوع",
+                                                tint = if (isDarkMode) Color.White else Color(0xFF0F172A)
+                                            )
+                                        }
+                                    },
+                                    actions = {
+                                        IconButton(onClick = {
+                                            scope.launch {
+                                                drawerState.open()
+                                            }
+                                        }) {
+                                            Icon(
+                                                imageVector = Icons.Filled.Menu,
+                                                contentDescription = "سجل الملفات",
+                                                tint = if (isDarkMode) Color.White else Color(0xFF0F172A)
+                                            )
+                                        }
+
+                                        IconButton(
+                                            onClick = { viewModel.toggleDarkMode() },
+                                            colors = IconButtonDefaults.iconButtonColors(
+                                                contentColor = if (isDarkMode) Color(0xFFC62828) else MaterialTheme.colorScheme.onSurface
+                                            )
+                                        ) {
+                                            Icon(
+                                                if (isDarkMode) Icons.Outlined.LightMode else Icons.Outlined.DarkMode,
+                                                contentDescription = "Invert Dark Mode"
+                                            )
+                                        }
+
+                                        IconButton(
+                                            onClick = { viewModel.toggleReflowMode() },
+                                            colors = IconButtonDefaults.iconButtonColors(
+                                                contentColor = if (isReflowMode) Color(0xFFC62828) else MaterialTheme.colorScheme.onSurface
+                                            )
+                                        ) {
+                                            Icon(Icons.Filled.TextFormat, contentDescription = "Reflow Mode Text")
+                                        }
+
+                                        IconButton(
+                                            onClick = { viewModel.setEditMode(!isEditMode) },
+                                            colors = IconButtonDefaults.iconButtonColors(
+                                                contentColor = if (isEditMode) Color(0xFFC62828) else MaterialTheme.colorScheme.onSurface
+                                            )
+                                        ) {
+                                            Icon(
+                                                if (isEditMode) Icons.Filled.EditOff else Icons.Filled.Edit,
+                                                contentDescription = "Toggle Edit Content"
+                                            )
+                                        }
+
+                                        IconButton(onClick = { showMetadataDialog = true }) {
+                                            Icon(
+                                                imageVector = Icons.Filled.Info,
+                                                contentDescription = "Info Metadata",
+                                                tint = if (isDarkMode) Color.White else Color(0xFF0F172A)
+                                            )
+                                        }
+
+                                        IconButton(onClick = { showSecurityDialog = true }) {
+                                            Icon(
+                                                imageVector = Icons.Filled.Security,
+                                                contentDescription = "Security password",
+                                                tint = if (isDarkMode) Color.White else Color(0xFF0F172A)
+                                            )
+                                        }
+                                    },
+                                    colors = TopAppBarDefaults.topAppBarColors(
+                                        containerColor = Color.Transparent,
+                                        titleContentColor = if (isDarkMode) Color.White else Color(0xFF0F172A)
+                                    )
+                                )
+
                                 ViewControlToolCard(
                                     viewModel = viewModel,
                                     searchQuery = searchQuery,
@@ -2193,18 +2253,18 @@ fun ViewControlToolCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(14.dp),
-        shape = RoundedCornerShape(16.dp),
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(
-            containerColor = if (isDarkMode) Color(0xFF1E293B) else Color.White
+            containerColor = if (isDarkMode) Color(0xFF1E293B).copy(alpha = 0.94f) else Color.White.copy(alpha = 0.94f)
         ),
         border = BorderStroke(
             1.dp,
-            if (isDarkMode) Color(0xFF334155) else Color(0xFFE2E8F0)
+            if (isDarkMode) Color(0xFF334155).copy(alpha = 0.8f) else Color(0xFFE2E8F0).copy(alpha = 0.8f)
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
     ) {
-        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             
             // Search Input Row (Word & Regex matching options)
             Row(
@@ -2264,13 +2324,13 @@ fun ViewControlToolCard(
             // Annotation Drawers selector (Highlights, Note, Stamp, Signature brush, shape vectors, measurements)
             Column(
                 modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 Text(
-                    "Professional Annotation Tools Palette:",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = if (isDarkMode) Color.White else Color(0xFF0F172A)
+                    "Annotation Tools:",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (isDarkMode) Color.LightGray else Color(0xFF475569)
                 )
 
                 Row(
@@ -2678,11 +2738,13 @@ fun PdfPageCanvasItem(
                             val path = Path()
                             var currentX = 0f
                             val squigglyY = size.height - 2f
-                            val waveLength = 8f * zoomScale
+                            val waveLength = (8f * zoomScale).coerceAtLeast(1f)
                             val amplitude = 2f * zoomScale
                             path.moveTo(currentX, squigglyY)
                             var toggle = true
-                            while (currentX < size.width) {
+                            var safetyCounter = 0
+                            while (currentX < size.width && safetyCounter < 1000) {
+                                safetyCounter++
                                 val nextX = (currentX + waveLength).coerceAtMost(size.width)
                                 val targetY = if (toggle) squigglyY - amplitude else squigglyY + amplitude
                                 path.lineTo(nextX, targetY)

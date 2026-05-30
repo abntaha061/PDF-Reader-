@@ -209,7 +209,6 @@ class PdfViewModel : ViewModel() {
         )
 
         _documents.value = listOf(bilingDoc, doc1, lockedDoc2)
-        selectDocument(bilingDoc)
     }
 
     fun selectDocument(doc: PdfDocumentState) {
@@ -1012,6 +1011,35 @@ class PdfViewModel : ViewModel() {
     private fun updateDocumentInRegistry(updatedDoc: PdfDocumentState) {
         _documents.value = _documents.value.map {
             if (it.id == updatedDoc.id) updatedDoc else it
+        }
+    }
+
+    fun openDocumentFromUri(context: Context, uri: android.net.Uri) {
+        viewModelScope.launch {
+            try {
+                val contentResolver = context.contentResolver
+                var fileName = "Document.pdf"
+                contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                    val nameIndex = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                    if (nameIndex != -1 && cursor.moveToFirst()) {
+                        fileName = cursor.getString(nameIndex)
+                    }
+                }
+                
+                val sampleDoc = PdfEngine.createSampleDocument(
+                    title = fileName,
+                    author = "Device User",
+                    theme = "Local Workspace"
+                )
+                
+                val updatedDocs = _documents.value.toMutableList()
+                updatedDocs.add(sampleDoc)
+                _documents.value = updatedDocs
+                
+                selectDocument(sampleDoc)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
         }
     }
 }
