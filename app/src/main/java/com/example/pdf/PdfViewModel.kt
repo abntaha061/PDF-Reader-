@@ -91,6 +91,13 @@ class PdfViewModel : ViewModel() {
     private val _currentReadBlockId = MutableStateFlow<String?>(null)
     val currentReadBlockId = _currentReadBlockId.asStateFlow()
 
+    // Playing Rich Media states
+    private val _currentPlayingAudio = MutableStateFlow<PdfAnnotation.AudioAnnotation?>(null)
+    val currentPlayingAudio = _currentPlayingAudio.asStateFlow()
+
+    private val _isPlayingAudioPlaying = MutableStateFlow(false)
+    val isPlayingAudioPlaying = _isPlayingAudioPlaying.asStateFlow()
+
     // Room DB integration
     private var database: PdfDatabase? = null
     private val _dbSavedFiles = MutableStateFlow<List<SavedFileEntity>>(emptyList())
@@ -165,8 +172,12 @@ class PdfViewModel : ViewModel() {
             val engine = TtsEngine(context)
             ttsEngine = engine
             viewModelScope.launch {
-                engine.isSpeaking.collect {
-                    _isSpeaking.value = it
+                engine.isSpeaking.collect { speaking ->
+                    _isSpeaking.value = speaking
+                    if (!speaking) {
+                        _currentPlayingAudio.value = null
+                        _isPlayingAudioPlaying.value = false
+                    }
                 }
             }
             viewModelScope.launch {
@@ -178,6 +189,7 @@ class PdfViewModel : ViewModel() {
     }
 
     private fun loadDefaultDocuments() {
+        val bilingDoc = PdfEngine.createGermanArabicSampleDocument()
         val doc1 = PdfEngine.createSampleDocument("User Manual - PDF Pro", "Alex Rider", "Product Guide")
         val doc2 = PdfEngine.createSampleDocument("Confidential Agreement", "WPS Corp", "Legal Contract")
         
@@ -196,8 +208,8 @@ class PdfViewModel : ViewModel() {
             )
         )
 
-        _documents.value = listOf(doc1, lockedDoc2)
-        selectDocument(doc1)
+        _documents.value = listOf(bilingDoc, doc1, lockedDoc2)
+        selectDocument(bilingDoc)
     }
 
     fun selectDocument(doc: PdfDocumentState) {
@@ -785,6 +797,31 @@ class PdfViewModel : ViewModel() {
 
     fun stopTts() {
         ttsEngine?.stop()
+        _currentPlayingAudio.value = null
+        _isPlayingAudioPlaying.value = false
+    }
+
+    fun playAudioAnnotation(audio: PdfAnnotation.AudioAnnotation) {
+        // Stop current speaking first
+        stopTts()
+        
+        // Mark as active
+        _currentPlayingAudio.value = audio
+        _isPlayingAudioPlaying.value = true
+        
+        // Use our smart detect-locale speech engine to play the word/sentence!
+        ttsEngine?.speak(audio.id, audio.textToSpeak)
+    }
+
+    fun stopAudioAnnotation() {
+        stopTts()
+    }
+
+    fun closeDocument() {
+        _currentDocument.value = null
+        _isDocumentLocked.value = false
+        _lockedDocumentPending.value = null
+        resetViewParameters()
     }
 
     override fun onCleared() {

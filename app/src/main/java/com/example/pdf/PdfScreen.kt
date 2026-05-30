@@ -69,6 +69,7 @@ fun PdfAppContent(viewModel: PdfViewModel) {
     val isGeminiLoading by viewModel.isGeminiLoading.collectAsState()
     
     val speakingBlockId by viewModel.currentReadBlockId.collectAsState()
+    val currentPlayingAudio by viewModel.currentPlayingAudio.collectAsState()
     
     val context = LocalContext.current
     LaunchedEffect(Unit) {
@@ -92,9 +93,229 @@ fun PdfAppContent(viewModel: PdfViewModel) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
 
-    ModalNavigationDrawer(
-        drawerState = drawerState,
-        drawerContent = {
+    // Permissions system
+    val isStorageManagerGranted = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+        android.os.Environment.isExternalStorageManager()
+    } else {
+        true
+    }
+    
+    var showPermissionDialog by remember { mutableStateOf(!isStorageManagerGranted) }
+
+    if (showPermissionDialog) {
+        Dialog(onDismissRequest = { }) {
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = if (isDarkMode) Color(0xFF1E293B) else Color(0xFF0F172A)
+                ),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth().padding(16.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Security,
+                        contentDescription = "Security Permission",
+                        tint = Color(0xFFE53935),
+                        modifier = Modifier.size(64.dp)
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = "طلب صلاحية الوصول للملفات",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = "يتطلب تطبيق قارئ ومحرر الـ PDF صلاحية \"الوصول إلى جميع الملفات\" (All Files Access) لنتمكن من البحث في ذاكرة الجهاز وعرض مستنداتك وتعديل النصوص وحفظها بسلاسة كما تفعل التطبيقات الكبرى. يرجى تفعيل هذه الصلاحية في الصفحة التالية.",
+                        fontSize = 13.sp,
+                        color = Color.LightGray,
+                        textAlign = TextAlign.Center,
+                        lineHeight = 20.sp
+                    )
+                    Spacer(modifier = Modifier.height(24.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = { showPermissionDialog = false },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                            border = BorderStroke(1.dp, Color.Gray)
+                        ) {
+                            Text("إلغاء", fontSize = 14.sp)
+                        }
+                        
+                        Button(
+                            onClick = {
+                                showPermissionDialog = false
+                                try {
+                                    val intent = android.content.Intent("android.settings.MANAGE_APP_ALL_FILES_ACCESS_PERMISSION").apply {
+                                        addCategory(android.content.Intent.CATEGORY_DEFAULT)
+                                        data = android.net.Uri.parse("package:${context.packageName}")
+                                    }
+                                    context.startActivity(intent)
+                                } catch (e: Exception) {
+                                    try {
+                                        val intent = android.content.Intent("android.settings.MANAGE_ALL_FILES_ACCESS_PERMISSION")
+                                        context.startActivity(intent)
+                                    } catch (ex: Exception) {
+                                        ex.printStackTrace()
+                                    }
+                                }
+                            },
+                            modifier = Modifier.weight(1.5f),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE53935))
+                        ) {
+                            Text("موافق وتفعيل", fontSize = 14.sp)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    var activeBottomTab by remember { mutableStateOf("recent") }
+    var recentSubTab by remember { mutableStateOf("recent") }
+
+    var isAudioLoading by remember { mutableStateOf(false) }
+    var activeAudioPlaying by remember { mutableStateOf<PdfAnnotation.AudioAnnotation?>(null) }
+    var isAudioPlayingState by remember { mutableStateOf(false) }
+    var audioProgress by remember { mutableStateOf(0f) }
+    var audioVolume by remember { mutableStateOf(0.8f) }
+
+    LaunchedEffect(isAudioLoading) {
+        if (isAudioLoading) {
+            kotlinx.coroutines.delay(1200)
+            isAudioLoading = false
+        }
+    }
+
+    LaunchedEffect(activeAudioPlaying, isAudioPlayingState) {
+        if (activeAudioPlaying != null && isAudioPlayingState) {
+            audioProgress = 0f
+            val durationMs = 4000
+            val intervalMs = 100
+            val steps = durationMs / intervalMs
+            for (i in 1..steps) {
+                if (!isAudioPlayingState) break
+                kotlinx.coroutines.delay(intervalMs.toLong())
+                audioProgress = i.toFloat() / steps
+            }
+            if (isAudioPlayingState && audioProgress >= 1f) {
+                isAudioPlayingState = false
+                kotlinx.coroutines.delay(500)
+                activeAudioPlaying = null
+                viewModel.stopAudioAnnotation()
+            }
+        }
+    }
+
+    if (currentDoc == null) {
+        Scaffold(
+            bottomBar = {
+                NavigationBar(
+                    containerColor = if (isDarkMode) Color(0xFF1E293B) else Color.White,
+                    tonalElevation = 8.dp
+                ) {
+                    NavigationBarItem(
+                        selected = activeBottomTab == "recent",
+                        onClick = { activeBottomTab = "recent" },
+                        icon = { Icon(Icons.Filled.History, contentDescription = "أخير") },
+                        label = { Text("أخير", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = Color(0xFFC62828),
+                            selectedTextColor = Color(0xFFC62828),
+                            indicatorColor = if (isDarkMode) Color(0xFF334155) else Color(0xFFFFEBEE)
+                        )
+                    )
+                    NavigationBarItem(
+                        selected = activeBottomTab == "files",
+                        onClick = { activeBottomTab = "files" },
+                        icon = { Icon(Icons.Filled.FolderOpen, contentDescription = "الملفات") },
+                        label = { Text("الملفات", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = Color(0xFF1E88E5),
+                            selectedTextColor = Color(0xFF1E88E5),
+                            indicatorColor = if (isDarkMode) Color(0xFF334155) else Color(0xFFE3F2FD)
+                        )
+                    )
+                    NavigationBarItem(
+                        selected = activeBottomTab == "discover",
+                        onClick = { activeBottomTab = "discover" },
+                        icon = { Icon(Icons.Filled.Explore, contentDescription = "اكتشاف") },
+                        label = { Text("اكتشاف", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = Color(0xFF00897B),
+                            selectedTextColor = Color(0xFF00897B),
+                            indicatorColor = if (isDarkMode) Color(0xFF334155) else Color(0xFFE0F2F1)
+                        )
+                    )
+                    NavigationBarItem(
+                        selected = activeBottomTab == "premium",
+                        onClick = { activeBottomTab = "premium" },
+                        icon = { Icon(Icons.Filled.OfflineBolt, contentDescription = "Premium") },
+                        label = { Text("Premium", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = Color(0xFFFBC02D),
+                            selectedTextColor = Color(0xFFFBC02D),
+                            indicatorColor = if (isDarkMode) Color(0xFF334155) else Color(0xFFFFFDE7)
+                        )
+                    )
+                }
+            }
+        ) { innerPadding ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .background(if (isDarkMode) Color(0xFF0F172A) else Color(0xFFF8FAFC))
+            ) {
+                when (activeBottomTab) {
+                    "recent" -> HomeRecentTab(
+                        viewModel = viewModel,
+                        rawDocuments = rawDocuments,
+                        isDarkMode = isDarkMode,
+                        recentSubTab = recentSubTab,
+                        onSubTabChange = { recentSubTab = it },
+                        onFileClick = { viewModel.selectDocument(it) },
+                        onCreateClick = { showConvertDialog = true }
+                    )
+                    "files" -> HomeFilesTab(
+                        viewModel = viewModel,
+                        rawDocuments = rawDocuments,
+                        isDarkMode = isDarkMode,
+                        onFileClick = { viewModel.selectDocument(it) }
+                    )
+                    "discover" -> HomeDiscoverTab(
+                        viewModel = viewModel,
+                        isDarkMode = isDarkMode,
+                        onMergeClick = { showMergeDialog = true },
+                        onSplitClick = { showSplitDialog = true },
+                        onOcrClick = { showOcrDialog = true },
+                        onCompressClick = { showCompressionDialog = true },
+                        onWatermarkClick = { showWatermarkDialog = true },
+                        onMetadataClick = { showMetadataDialog = true },
+                        openBilingualGuide = {
+                            val guide = rawDocuments.find { it.name.contains("Bilingual", ignoreCase = true) }
+                            if (guide != null) {
+                                viewModel.selectDocument(guide)
+                            }
+                        }
+                    )
+                    "premium" -> HomePremiumTab(isDarkMode = isDarkMode)
+                }
+            }
+        }
+    } else {
+        ModalNavigationDrawer(
+            drawerState = drawerState,
+            drawerContent = {
             ModalDrawerSheet(
                 drawerContainerColor = MaterialTheme.colorScheme.surfaceVariant,
                 modifier = Modifier.width(320.dp)
@@ -518,14 +739,20 @@ fun PdfAppContent(viewModel: PdfViewModel) {
                     },
                     navigationIcon = {
                         IconButton(onClick = {
+                            viewModel.closeDocument()
+                        }) {
+                            Icon(Icons.Filled.ArrowBack, contentDescription = "رجوع")
+                        }
+                    },
+                    actions = {
+                        IconButton(onClick = {
                             scope.launch {
                                 drawerState.open()
                             }
                         }) {
-                            Icon(Icons.Filled.Menu, contentDescription = "Menu")
+                            Icon(Icons.Filled.Menu, contentDescription = "سجل الملفات")
                         }
-                    },
-                    actions = {
+
                         // Intelligent Action Toggles
                         IconButton(
                             onClick = { viewModel.toggleDarkMode() },
@@ -657,6 +884,14 @@ fun PdfAppContent(viewModel: PdfViewModel) {
                                         PdfPageCanvasItem(
                                             page = page,
                                             zoomScale = zoomScale,
+                                            currentPlayingAudio = activeAudioPlaying ?: currentPlayingAudio,
+                                            onPlayAudioAnnotation = { audio ->
+                                                 viewModel.playAudioAnnotation(audio)
+                                                 isAudioLoading = true
+                                                 activeAudioPlaying = audio
+                                                 isAudioPlayingState = true
+                                                 audioProgress = 0f
+                                             },
                                             isDarkMode = isDarkMode,
                                             isEditMode = isEditMode,
                                             selectedTextId = selectedTextId,
@@ -741,10 +976,77 @@ fun PdfAppContent(viewModel: PdfViewModel) {
                             geminiResult = geminiResult
                         )
                     }
+
+                    // --- Black Web-Loading Overlay ---
+                    if (isAudioLoading) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color.Black.copy(alpha = 0.92f))
+                                .clickable(enabled = false) {},
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    CircularProgressIndicator(
+                                        color = Color(0xFF00B0FF),
+                                        strokeWidth = 3.dp,
+                                        modifier = Modifier.size(64.dp)
+                                    )
+                                    Icon(
+                                        imageVector = Icons.Filled.Language,
+                                        contentDescription = "Globe",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(28.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(24.dp))
+                                Text(
+                                    text = "جاري التحميل",
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color.White
+                                )
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Text(
+                                    text = "تجهيز النطق ثنائي اللغة (ألماني - عربي)...",
+                                    fontSize = 12.sp,
+                                    color = Color.Gray,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                        }
+                    }
+
+                    // --- Popup Multimedia Player Dialog ---
+                    if (activeAudioPlaying != null && !isAudioLoading) {
+                        AudioPlayerDialog(
+                            audio = activeAudioPlaying!!,
+                            isDarkMode = isDarkMode,
+                            isAudioPlayingState = isAudioPlayingState,
+                            onPlayToggle = { isPlaying ->
+                                isAudioPlayingState = isPlaying
+                                if (isPlaying) {
+                                    viewModel.playAudioAnnotation(activeAudioPlaying!!)
+                                } else {
+                                    viewModel.stopTts()
+                                }
+                            },
+                            audioProgress = audioProgress,
+                            onProgressChange = { audioProgress = it },
+                            audioVolume = audioVolume,
+                            onVolumeChange = { audioVolume = it },
+                            onDismiss = {
+                                viewModel.stopAudioAnnotation()
+                                activeAudioPlaying = null
+                            }
+                        )
+                    }
                 }
             }
         }
     }
+}
 
     // ============================================
     // MODAL DIALOGS FOR EXTREME PDF OPERATIONS
@@ -2041,7 +2343,9 @@ fun PdfPageCanvasItem(
     onImageRotateRequested: (String) -> Unit,
     onImageScaleRequested: (String, Boolean) -> Unit,
     onAddHyperlinkRequested: (String, String, Float, Float) -> Unit,
-    onFormFieldUpdated: (String, String) -> Unit = { _, _ -> }
+    onFormFieldUpdated: (String, String) -> Unit = { _, _ -> },
+    currentPlayingAudio: PdfAnnotation.AudioAnnotation? = null,
+    onPlayAudioAnnotation: (PdfAnnotation.AudioAnnotation) -> Unit = {}
 ) {
     val baseWidth = page.width * zoomScale
     val baseHeight = page.height * zoomScale
@@ -2274,6 +2578,53 @@ fun PdfPageCanvasItem(
                                     color = Color.Blue,
                                     style = Stroke(width = 4f, cap = StrokeCap.Round)
                                 )
+                            }
+                        }
+                    }
+                    is PdfAnnotation.AudioAnnotation -> {
+                        val isCurrentPlaying = currentPlayingAudio?.id == ann.id
+                        Box(
+                            modifier = Modifier
+                                .offset(
+                                    x = (ann.x * zoomScale).dp,
+                                    y = (ann.y * zoomScale).dp
+                                )
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(
+                                    if (isCurrentPlaying) Color(0xFFE0F2F1) else Color(0xFFF1F5F9)
+                                )
+                                .border(
+                                    width = if (isCurrentPlaying) 2.dp else 1.dp,
+                                    color = if (isCurrentPlaying) Color(0xFF00796B) else Color.LightGray,
+                                    shape = RoundedCornerShape(12.dp)
+                                )
+                                .clickable { onPlayAudioAnnotation(ann) }
+                                .padding(horizontal = 8.dp, vertical = 6.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (isCurrentPlaying) Icons.Filled.VolumeUp else Icons.Filled.VolumeMute,
+                                    contentDescription = "Audio Playback",
+                                    tint = if (isCurrentPlaying) Color(0xFF00796B) else Color.DarkGray,
+                                    modifier = Modifier.size((16 * zoomScale).dp)
+                                )
+                                Text(
+                                    text = ann.label,
+                                    fontSize = (11 * zoomScale).sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isCurrentPlaying) Color(0xFF004D40) else Color.Black
+                                )
+                                if (isCurrentPlaying) {
+                                    Text(
+                                        text = " ♪",
+                                        fontSize = (11 * zoomScale).sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = Color(0xFF00796B)
+                                    )
+                                }
                             }
                         }
                     }
@@ -2795,6 +3146,1056 @@ fun GeminiAssistantBottomPanel(
                             color = if (dark) Color.White else Color.Black
                         )
                     }
+                }
+            }
+        }
+    }
+}
+
+// =========================================================================
+// HIGH FIDELITY BOTTOM NAVIGATION TAB DASHBOARDS (Recent, Files, Discover, Premium)
+// =========================================================================
+
+@Composable
+fun HomeRecentTab(
+    viewModel: PdfViewModel,
+    rawDocuments: List<PdfDocumentState>,
+    isDarkMode: Boolean,
+    recentSubTab: String,
+    onSubTabChange: (String) -> Unit,
+    onFileClick: (PdfDocumentState) -> Unit,
+    onCreateClick: () -> Unit
+) {
+    val dbSavedFiles by viewModel.dbSavedFiles.collectAsState()
+    val dbFavorites by viewModel.dbFavorites.collectAsState()
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp, vertical = 20.dp)
+    ) {
+        // 1. Search Bar with Profile Icon (Avatar)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    if (isDarkMode) Color(0xFF1E293B) else Color(0xFFEEF2F6),
+                    RoundedCornerShape(24.dp)
+                )
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFFC62828)),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "M",
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp
+                )
+            }
+            Spacer(modifier = Modifier.width(10.dp))
+            Text(
+                text = "بحث عن الملفات والأدوات",
+                color = if (isDarkMode) Color.LightGray else Color.Gray,
+                fontSize = 14.sp,
+                modifier = Modifier.weight(1f)
+            )
+            IconButton(onClick = {}, modifier = Modifier.size(24.dp)) {
+                Icon(
+                    imageVector = Icons.Filled.Smartphone,
+                    contentDescription = "Device info",
+                    tint = if (isDarkMode) Color.White else Color.Black
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        // 2. Tab selection ("أخير" vs "مميز بنجمة") + Filter Icon
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Column(
+                    modifier = Modifier.clickable { onSubTabChange("recent") },
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = "أخير",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (recentSubTab == "recent") Color(0xFFC62828) else Color.Gray
+                    )
+                    if (recentSubTab == "recent") {
+                        Box(
+                            modifier = Modifier
+                                .padding(top = 4.dp)
+                                .width(30.dp)
+                                .height(3.dp)
+                                .background(Color(0xFFC62828), RoundedCornerShape(1.5.dp))
+                        )
+                    }
+                }
+
+                Column(
+                    modifier = Modifier.clickable { onSubTabChange("starred") },
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = "مميز بنجمة",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (recentSubTab == "starred") Color(0xFFC62828) else Color.Gray
+                    )
+                    if (recentSubTab == "starred") {
+                        Box(
+                            modifier = Modifier
+                                .padding(top = 4.dp)
+                                .width(50.dp)
+                                .height(3.dp)
+                                .background(Color(0xFFC62828), RoundedCornerShape(1.5.dp))
+                        )
+                    }
+                }
+            }
+
+            IconButton(onClick = {}) {
+                Icon(
+                    imageVector = Icons.Filled.FilterList,
+                    contentDescription = "Filter",
+                    tint = if (isDarkMode) Color.White else Color.Black
+                )
+            }
+        }
+
+        HorizontalDivider(modifier = Modifier.padding(top = 8.dp, bottom = 12.dp))
+
+        // 3. List of files
+        Box(modifier = Modifier.weight(1f)) {
+            val displayedFiles = remember(recentSubTab, rawDocuments, dbSavedFiles, dbFavorites) {
+                if (recentSubTab == "starred") {
+                    rawDocuments.filter { doc -> dbFavorites.any { it.id == doc.id } }
+                } else {
+                    rawDocuments
+                }
+            }
+
+            if (displayedFiles.isEmpty()) {
+                Column(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(
+                        imageVector = if (recentSubTab == "starred") Icons.Filled.StarBorder else Icons.Filled.HistoryToggleOff,
+                        contentDescription = "Empty",
+                        tint = Color.Gray,
+                        modifier = Modifier.size(64.dp)
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = if (recentSubTab == "starred") "لا توجد ملفات مميزة بنجمة" else "قائمة الملفات الأخيرة فارغة",
+                        fontSize = 15.sp,
+                        color = Color.Gray,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    if (recentSubTab == "recent") {
+                        item {
+                            RecentMockFileItem(
+                                name = "proguard-rules.txt",
+                                subtitle = "٢٧-٠٥ • تنزيل",
+                                fileType = "TXT",
+                                isDarkMode = isDarkMode,
+                                onClick = {
+                                    val match = rawDocuments.find { it.name.contains("Manual", ignoreCase = true) }
+                                    if (match != null) onFileClick(match)
+                                }
+                            )
+                        }
+                        item {
+                            RecentMockFileItem(
+                                name = "build.gradle.kts",
+                                subtitle = "ملفات من Download",
+                                fileType = "TXT",
+                                isDarkMode = isDarkMode,
+                                onClick = {
+                                    val match = rawDocuments.find { it.name.contains("Agreement", ignoreCase = true) }
+                                    if (match != null) onFileClick(match)
+                                }
+                            )
+                        }
+                        item {
+                            RecentMockFileItem(
+                                name = "cookies (1).txt",
+                                subtitle = "٢٣-٠٥ • تنزيل",
+                                fileType = "TXT",
+                                isDarkMode = isDarkMode,
+                                onClick = {
+                                    val match = rawDocuments.find { it.name.contains("Manual", ignoreCase = true) }
+                                    if (match != null) onFileClick(match)
+                                }
+                            )
+                        }
+                    }
+
+                    items(displayedFiles) { doc ->
+                        val isFav = dbFavorites.any { it.id == doc.id }
+                        var showDropdown by remember { mutableStateOf(false) }
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(
+                                    if (isDarkMode) Color(0xFF1E293B) else Color.White,
+                                    RoundedCornerShape(12.dp)
+                                )
+                                .clickable { onFileClick(doc) }
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(42.dp)
+                                    .background(
+                                        if (doc.security.isEncrypted) Color(0xFFFFCC80) else Color(0xFFFFEBEE),
+                                        RoundedCornerShape(8.dp)
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = if (doc.security.isEncrypted) Icons.Filled.Lock else Icons.Filled.PictureAsPdf,
+                                    tint = if (doc.security.isEncrypted) Color(0xFFE65100) else Color(0xFFC62828),
+                                    modifier = Modifier.size(24.dp),
+                                    contentDescription = "PDF Icon"
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.width(12.dp))
+
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = doc.name,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isDarkMode) Color.White else Color(0xFF0F172A),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = "٢٢-٠٥ • ${doc.pages.size} صفحة • هذا الجهاز",
+                                    fontSize = 11.sp,
+                                    color = Color.Gray
+                                )
+                            }
+
+                            Box {
+                                IconButton(onClick = { showDropdown = true }) {
+                                    Icon(
+                                        imageVector = Icons.Filled.MoreVert,
+                                        contentDescription = "Options",
+                                        tint = if (isDarkMode) Color.White else Color.Black
+                                    )
+                                }
+
+                                DropdownMenu(
+                                    expanded = showDropdown,
+                                    onDismissRequest = { showDropdown = false }
+                                ) {
+                                    DropdownMenuItem(
+                                        text = { Text("مشاركة الملف") },
+                                        onClick = { showDropdown = false },
+                                        leadingIcon = { Icon(Icons.Filled.Share, contentDescription = null) }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text(if (isFav) "إلغاء التمييز بنجمة" else "تمييز بنجمة") },
+                                        onClick = {
+                                            viewModel.toggleFavoriteInDb(doc.id, isFav)
+                                            showDropdown = false
+                                        },
+                                        leadingIcon = { Icon(Icons.Filled.Star, contentDescription = null) }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("معلومات الملف") },
+                                        onClick = { showDropdown = false },
+                                        leadingIcon = { Icon(Icons.Filled.Info, contentDescription = null) }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            ExtendedFloatingActionButton(
+                text = { Text("إنشاء", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp) },
+                icon = { Icon(Icons.Filled.Add, contentDescription = "Create", tint = Color.White) },
+                onClick = { onCreateClick() },
+                containerColor = Color(0xFF2979FF),
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(bottom = 16.dp, end = 4.dp)
+            )
+        }
+    }
+}
+
+@Composable
+fun RecentMockFileItem(
+    name: String,
+    subtitle: String,
+    fileType: String,
+    isDarkMode: Boolean,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                if (isDarkMode) Color(0xFF1E293B) else Color.White,
+                RoundedCornerShape(12.dp)
+            )
+            .clickable { onClick() }
+            .padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(42.dp)
+                .background(Color(0xFFECEFF1), RoundedCornerShape(8.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = fileType,
+                color = Color(0xFF455A64),
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 11.sp
+            )
+        }
+
+        Spacer(modifier = Modifier.width(12.dp))
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = name,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = if (isDarkMode) Color.White else Color(0xFF0F172A),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = subtitle,
+                fontSize = 11.sp,
+                color = Color.Gray
+            )
+        }
+
+        IconButton(onClick = {}) {
+            Icon(
+                imageVector = Icons.Filled.MoreVert,
+                contentDescription = null,
+                tint = if (isDarkMode) Color.White else Color.Black
+            )
+        }
+    }
+}
+
+@Composable
+fun HomeFilesTab(
+    viewModel: PdfViewModel,
+    rawDocuments: List<PdfDocumentState>,
+    isDarkMode: Boolean,
+    onFileClick: (PdfDocumentState) -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        item {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        if (isDarkMode) Color(0xFF1E293B) else Color(0xFFEEF2F6),
+                        RoundedCornerShape(24.dp)
+                    )
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier.size(34.dp).clip(CircleShape).background(Color(0xFFC62828)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("M", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(
+                    text = "بحث عن الملفات والأدوات",
+                    color = if (isDarkMode) Color.LightGray else Color.Gray,
+                    fontSize = 14.sp,
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(onClick = {}, modifier = Modifier.size(24.dp)) {
+                    Icon(
+                        imageVector = Icons.Filled.Smartphone,
+                        contentDescription = "Device info",
+                        tint = if (isDarkMode) Color.White else Color.Black
+                    )
+                }
+            }
+        }
+
+        item {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        if (isDarkMode) Color(0xFF1E293B) else Color.White,
+                        RoundedCornerShape(16.dp)
+                    )
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    CategoryGridItem(name = "PDF", color = Color(0xFFEF5350), icon = Icons.Filled.PictureAsPdf, onClick = {
+                        val match = rawDocuments.find { it.name.contains("Bilingual", ignoreCase = true) }
+                        if (match != null) onFileClick(match)
+                    })
+                    CategoryGridItem(name = "XLS", color = Color(0xFF66BB6A), icon = Icons.Filled.Article, onClick = {
+                        val match = rawDocuments.find { it.name.contains("Manual", ignoreCase = true) }
+                        if (match != null) onFileClick(match)
+                    })
+                    CategoryGridItem(name = "PPT", color = Color(0xFFFF7043), icon = Icons.Filled.Slideshow, onClick = {
+                        val match = rawDocuments.find { it.name.contains("Agreement", ignoreCase = true) }
+                        if (match != null) onFileClick(match)
+                    })
+                    CategoryGridItem(name = "DOC", color = Color(0xFF42A5F5), icon = Icons.Filled.Description, onClick = {
+                        val match = rawDocuments.find { it.name.contains("Manual", ignoreCase = true) }
+                        if (match != null) onFileClick(match)
+                    })
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    CategoryGridItem(name = "TXT", color = Color(0xFF78909C), icon = Icons.Filled.Assignment, onClick = {
+                        val match = rawDocuments.find { it.name.contains("Manual", ignoreCase = true) }
+                        if (match != null) onFileClick(match)
+                    })
+                    CategoryGridItem(name = "الصور", color = Color(0xFFAB47BC), icon = Icons.Filled.Image, onClick = {
+                        val match = rawDocuments.find { it.name.contains("Agreement", ignoreCase = true) }
+                        if (match != null) onFileClick(match)
+                    })
+                    CategoryGridItem(name = "أخرى", color = Color(0xFF26A69A), icon = Icons.Filled.GridOn, onClick = {})
+                    CategoryGridItem(name = "سحابي", color = Color(0xFF26C6DA), icon = Icons.Filled.Cloud, onClick = {})
+                }
+            }
+        }
+
+        item {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        if (isDarkMode) Color(0xFF1E293B) else Color.White,
+                        RoundedCornerShape(16.dp)
+                    )
+                    .padding(vertical = 8.dp)
+            ) {
+                StoragePathRow(label = "هذا الجهاز", sub = "G ٢٤,٣", icon = Icons.Filled.Smartphone, iconColor = Color(0xFF42A5F5), isDarkMode = isDarkMode)
+                StoragePathRow(label = "تم الإرسال من تطبيقات أخرى", sub = "الملفات النشطة من WhatsApp أو Telegram", icon = Icons.Filled.Share, iconColor = Color(0xFF66BB6A), badgeCount = 3, isDarkMode = isDarkMode)
+                StoragePathRow(label = "تنزيل", sub = "ملفات الـ Download والإنترنت", icon = Icons.Filled.ArrowCircleDown, iconColor = Color(0xFFAB47BC), isDarkMode = isDarkMode)
+                StoragePathRow(label = "مستنداتي", sub = "مسار التخزين الافتراضي للمستندات", icon = Icons.Filled.Folder, iconColor = Color(0xFFFF9100), isDarkMode = isDarkMode)
+            }
+        }
+
+        item {
+            Text(
+                text = "الخدمات السحابية",
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.Gray,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+            )
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        if (isDarkMode) Color(0xFF1E293B) else Color.White,
+                        RoundedCornerShape(16.dp)
+                    )
+                    .padding(vertical = 8.dp)
+            ) {
+                StoragePathRow(label = "WPS Cloud", sub = "مساحة سحابية آمنة ومجانية", icon = Icons.Filled.Cloud, iconColor = Color(0xFF00B0FF), isDarkMode = isDarkMode)
+                StoragePathRow(label = "OneDrive", sub = "ربط ومزامنة مستندات Microsoft", icon = Icons.Filled.Backup, iconColor = Color(0xFF114285), isDarkMode = isDarkMode)
+                StoragePathRow(label = "Evernote", sub = "استيراد الملاحظات والملفات والمسودات", icon = Icons.Filled.EventNote, iconColor = Color(0xFF4CAF50), isDarkMode = isDarkMode)
+                StoragePathRow(label = "إضافة WebDAV / FTP", sub = "الاتصال بالخوادم المحلية والبعيدة", icon = Icons.Filled.AddCircle, iconColor = Color(0xFF1E88E5), isDarkMode = isDarkMode)
+            }
+        }
+    }
+}
+
+@Composable
+fun CategoryGridItem(
+    name: String,
+    color: Color,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    onClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .width(60.dp)
+            .clickable { onClick() },
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Box(
+            modifier = Modifier
+                .size(46.dp)
+                .background(color, RoundedCornerShape(14.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = name,
+                tint = Color.White,
+                modifier = Modifier.size(24.dp)
+            )
+        }
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = name,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center
+        )
+    }
+}
+
+@Composable
+fun StoragePathRow(
+    label: String,
+    sub: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    iconColor: Color,
+    badgeCount: Int? = null,
+    isDarkMode: Boolean
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .background(iconColor.copy(alpha = 0.15f), RoundedCornerShape(10.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                tint = iconColor,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+
+        Spacer(modifier = Modifier.width(16.dp))
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = label,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (isDarkMode) Color.White else Color(0xFF0F172A)
+            )
+            Text(
+                text = sub,
+                fontSize = 11.sp,
+                color = Color.Gray
+            )
+        }
+
+        if (badgeCount != null) {
+            Box(
+                modifier = Modifier
+                    .size(18.dp)
+                    .background(Color(0xFF2979FF), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = badgeCount.toString(),
+                    color = Color.White,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun HomeDiscoverTab(
+    viewModel: PdfViewModel,
+    isDarkMode: Boolean,
+    onMergeClick: () -> Unit,
+    onSplitClick: () -> Unit,
+    onOcrClick: () -> Unit,
+    onCompressClick: () -> Unit,
+    onWatermarkClick: () -> Unit,
+    onMetadataClick: () -> Unit,
+    openBilingualGuide: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+            .verticalScroll(rememberScrollState())
+    ) {
+        Text(
+            text = "اكتشاف الأدوات الذكية",
+            fontSize = 20.sp,
+            fontWeight = FontWeight.Bold,
+            color = if (isDarkMode) Color.White else Color(0xFF0F172A)
+        )
+        Text(
+            text = "مجموعة متكاملة من أدوات تعديل وإنشاء مستندات PDF الاحترافية",
+            fontSize = 12.sp,
+            color = Color.Gray,
+            modifier = Modifier.padding(top = 4.dp, bottom = 18.dp)
+        )
+
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = if (isDarkMode) Color(0xFF1E293B) else Color(0xFFE0F2F1)
+                ),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { openBilingualGuide() }
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(50.dp)
+                            .background(Color(0xFF00796B), RoundedCornerShape(12.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("🔊", fontSize = 24.sp)
+                    }
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "القارئ الصوتي التفاعلي ثنائي اللغة (Bilingual Reading)",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isDarkMode) Color.White else Color(0xFF004D40)
+                        )
+                        Text(
+                            text = "يدعم دمج نطق صوتي تفاعلي لكل فقرة، مثالي لتعلم اللغة الألمانية والعربية.",
+                            fontSize = 11.sp,
+                            color = if (isDarkMode) Color.LightGray else Color(0xFF004D40).copy(alpha = 0.7f)
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            DiscoverToolItem(
+                title = "محرك الدمج السريع (Merge PDF)",
+                description = "دمج عدة صفحات ومستندات في ملف واحد متكامل.",
+                emoji = "📂",
+                toolColor = Color(0xFF42A5F5),
+                isDarkMode = isDarkMode,
+                onClick = onMergeClick
+            )
+
+            DiscoverToolItem(
+                title = "محرك التقسيم الذكي (Split PDF)",
+                description = "تفتيت المستند المفتوح بناءً على أرقام الصفحات أو بحجم الملف.",
+                emoji = "✂️",
+                toolColor = Color(0xFFEF5350),
+                isDarkMode = isDarkMode,
+                onClick = onSplitClick
+            )
+
+            DiscoverToolItem(
+                title = "مسح ضوئي ذكي AI OCR Scanner",
+                description = "استخراج النصوص من الصور وتلخيصها أو ترجمتها عبر Gemini AI.",
+                emoji = "🔍",
+                toolColor = Color(0xFFAB47BC),
+                isDarkMode = isDarkMode,
+                onClick = onOcrClick
+            )
+
+            DiscoverToolItem(
+                title = "تقليص وضغط المستند (Compress PDF)",
+                description = "تطبيق خوارزميات الضغط لتقليل الحجم مع الحفاظ على جودة النصوص.",
+                emoji = "⚡",
+                toolColor = Color(0xFF66BB6A),
+                isDarkMode = isDarkMode,
+                onClick = onCompressClick
+            )
+
+            DiscoverToolItem(
+                title = "تحرير العلامات المائية والحماية (Watermarking)",
+                description = "إضافة نصوص وأختام حماية لمنع نسخ وتداول الملف.",
+                emoji = "🛡️",
+                toolColor = Color(0xFFFF7043),
+                isDarkMode = isDarkMode,
+                onClick = onWatermarkClick
+            )
+
+            DiscoverToolItem(
+                title = "محدد البيانات الفوقية (PDF Metadata Control)",
+                description = "تعديل اسم الكاتب، العنوان، والكلمات المفتاحية في ثوانٍ.",
+                emoji = "✍️",
+                toolColor = Color(0xFF26A69A),
+                isDarkMode = isDarkMode,
+                onClick = onMetadataClick
+            )
+        }
+    }
+}
+
+@Composable
+fun DiscoverToolItem(
+    title: String,
+    description: String,
+    emoji: String,
+    toolColor: Color,
+    isDarkMode: Boolean,
+    onClick: () -> Unit
+) {
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = if (isDarkMode) Color(0xFF1E293B) else Color.White
+        ),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+    ) {
+        Row(
+            modifier = Modifier.padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(42.dp)
+                    .background(toolColor.copy(alpha = 0.15f), RoundedCornerShape(10.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(emoji, fontSize = 20.sp)
+            }
+            Spacer(modifier = Modifier.width(14.dp))
+            Column {
+                Text(
+                    text = title,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (isDarkMode) Color.White else Color(0xFF0F172A)
+                )
+                Text(
+                    text = description,
+                    fontSize = 11.sp,
+                    color = Color.Gray
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun HomePremiumTab(isDarkMode: Boolean) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+            .verticalScroll(rememberScrollState())
+    ) {
+        Card(
+            colors = CardDefaults.cardColors(containerColor = if (isDarkMode) Color(0xFF1E293B) else Color(0xFF0F172A)),
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(54.dp)
+                        .background(Color(0xFFFBC02D).copy(alpha = 0.15f), CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.OfflineBolt,
+                        contentDescription = "Premium",
+                        tint = Color(0xFFFBC02D),
+                        modifier = Modifier.size(32.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Text(
+                    text = "WPS Office Premium",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color.White
+                )
+
+                Text(
+                    text = "قم بالتصفح السحابي ومضاعفة إنتاجيتك الآن",
+                    fontSize = 12.sp,
+                    color = Color.LightGray,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                Button(
+                    onClick = {},
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFBC02D)),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        "الترقية إلى الباقة الاحترافية",
+                        color = Color(0xFF0F172A),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Text(
+                    text = "فقط 4.99$ شهرياً - إلغاء في أي وقت",
+                    fontSize = 11.sp,
+                    color = Color.LightGray
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Text(
+            text = "المزايا الحصرية المتضمنة",
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Bold,
+            color = if (isDarkMode) Color.White else Color(0xFF0F172A),
+            modifier = Modifier.padding(horizontal = 4.dp)
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        PremiumBenefitRow(title = "سعة سحابية بمساحة 20 جيجابايت لتخزين ملفاتك ومزامنتها", emoji = "☁️", isDarkMode = isDarkMode)
+        PremiumBenefitRow(title = "إزالة تامة لجميع الإعلانات المنبثقة للتصفح الهادئ", emoji = "🚫", isDarkMode = isDarkMode)
+        PremiumBenefitRow(title = "تحرير النصوص وتعديل الموضع المتقدم للـ PDF", emoji = "📝", isDarkMode = isDarkMode)
+        PremiumBenefitRow(title = "محرك النطق الآلي ثنائي اللغة المتميز Pro TTS", emoji = "🌍", isDarkMode = isDarkMode)
+        PremiumBenefitRow(title = "حزمة فك وتعديل كلمات المرور الأمنية للمستندات", emoji = "🔒", isDarkMode = isDarkMode)
+    }
+}
+
+@Composable
+fun PremiumBenefitRow(title: String, emoji: String, isDarkMode: Boolean) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(32.dp)
+                .background(
+                    if (isDarkMode) Color(0xFF1E293B) else Color(0xFFF1F5F9),
+                    RoundedCornerShape(8.dp)
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(emoji, fontSize = 16.sp)
+        }
+        Spacer(modifier = Modifier.width(14.dp))
+        Text(
+            text = title,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium,
+            color = if (isDarkMode) Color.White else Color(0xFF1E293B)
+        )
+    }
+}
+
+@Composable
+fun AudioPlayerDialog(
+    audio: PdfAnnotation.AudioAnnotation,
+    isDarkMode: Boolean,
+    isAudioPlayingState: Boolean,
+    onPlayToggle: (Boolean) -> Unit,
+    audioProgress: Float,
+    onProgressChange: (Float) -> Unit,
+    audioVolume: Float,
+    onVolumeChange: (Float) -> Unit,
+    onDismiss: () -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            colors = CardDefaults.cardColors(
+                containerColor = if (isDarkMode) Color(0xFF1E293B) else Color.White
+            ),
+            shape = RoundedCornerShape(24.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 14.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(30.dp)
+                                .background(
+                                    if (isDarkMode) Color(0xFF334155) else Color(0xFFE0F2F1),
+                                    CircleShape
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(if (audio.language == "de") "🇩🇪" else "🇸🇦", fontSize = 16.sp)
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = if (audio.language == "de") "النطق الألماني (German Speech)" else "النطق العربي (Arabic Speech)",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF00796B)
+                        )
+                    }
+
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
+                        Icon(
+                            imageVector = Icons.Filled.Close,
+                            contentDescription = "Close Player",
+                            tint = Color.Gray
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(18.dp))
+
+                IconButton(
+                    onClick = { onPlayToggle(!isAudioPlayingState) },
+                    modifier = Modifier
+                        .size(76.dp)
+                        .background(Color(0xFFE0F2F1), CircleShape)
+                ) {
+                    Icon(
+                        imageVector = if (isAudioPlayingState) Icons.Filled.PauseCircleFilled else Icons.Filled.PlayCircleFilled,
+                        contentDescription = "Toggle Speech",
+                        tint = Color(0xFF00796B),
+                        modifier = Modifier.size(60.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Text(
+                    text = audio.textToSpeak,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = if (isDarkMode) Color.White else Color(0xFF022C22),
+                    textAlign = TextAlign.Center
+                )
+
+                Text(
+                    text = audio.label,
+                    fontSize = 11.sp,
+                    color = Color.Gray,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                Slider(
+                    value = audioProgress,
+                    onValueChange = onProgressChange,
+                    colors = SliderDefaults.colors(
+                        activeTrackColor = Color(0xFF00796B),
+                        thumbColor = Color(0xFF004D40)
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val progressSec = (audioProgress * 4f).roundToInt()
+                    Text("0:0$progressSec", fontSize = 11.sp, color = Color.Gray)
+                    Text("0:04", fontSize = 11.sp, color = Color.Gray)
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Icon(
+                        imageVector = if (audioVolume == 0f) Icons.Filled.VolumeMute else Icons.Filled.VolumeUp,
+                        contentDescription = "Volume",
+                        tint = Color(0xFF00796B),
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Slider(
+                        value = audioVolume,
+                        onValueChange = onVolumeChange,
+                        modifier = Modifier.weight(1f),
+                        colors = SliderDefaults.colors(
+                            activeTrackColor = Color.LightGray,
+                            thumbColor = Color(0xFF004D40)
+                        )
+                    )
                 }
             }
         }

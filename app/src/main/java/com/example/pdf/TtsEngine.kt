@@ -74,12 +74,46 @@ class TtsEngine(private val context: Context) : TextToSpeech.OnInitListener {
     private var currentReadingText: String? = null
 
     /**
+     * Detects language locale based on text characters and common words
+     */
+    fun detectLocale(text: String): Locale {
+        val hasArabic = text.any { it in '\u0600'..'\u06FF' || it in '\u0750'..'\u077F' }
+        if (hasArabic) {
+            return Locale("ar")
+        }
+        
+        val lower = text.lowercase()
+        val hasGermanChars = lower.any { it == 'ä' || it == 'ö' || it == 'ü' || it == 'ß' }
+        val commonGermanWords = setOf(
+            "der", "die", "das", "und", "ist", "in", "zu", "den", "von", "mit", "ein", "eine", 
+            "nicht", "auf", "für", "sie", "es", "wir", "ihr", "deutsch", "guten", "tag", "hallo", 
+            "ja", "nein", "bitte", "danke", "guten tag", "auf wiedersehen", "wie", "geht", "mir", "dir"
+        )
+        val words = lower.split("\\s+".toRegex()).map { it.trim().replace("\\p{Punct}".toRegex(), "") }
+        val hasGermanWords = words.any { it in commonGermanWords }
+        
+        if (hasGermanChars || hasGermanWords) {
+            return Locale.GERMAN
+        }
+        
+        return Locale.getDefault()
+    }
+
+    /**
      * Speaks the target TextBlock with a unique identifier
      */
     fun speak(blockId: String, text: String) {
         if (!isInitialized || tts == null) return
         
         stop()
+        
+        val detectedLanguage = detectLocale(text)
+        try {
+            tts?.setLanguage(detectedLanguage)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
         currentReadingText = text
         _currentReadBlockId.value = blockId
         _isSpeaking.value = true

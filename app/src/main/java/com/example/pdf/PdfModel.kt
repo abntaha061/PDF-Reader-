@@ -222,4 +222,15 @@ sealed class PdfAnnotation {
         val unit: String = "mm",
         val color: String = "#1E88E5"
     ) : PdfAnnotation()
+
+    data class AudioAnnotation(
+        override val id: String,
+        override val x: Float,
+        override val y: Float,
+        override val pageIndex: Int,
+        val audioFilename: String,
+        val label: String,
+        val textToSpeak: String,
+        val language: String // "de" or "ar"
+    ) : PdfAnnotation()
 }

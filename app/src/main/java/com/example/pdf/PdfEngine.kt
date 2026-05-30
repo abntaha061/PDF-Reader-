@@ -566,6 +566,30 @@ object PdfEngine {
                             val midY = (ann.y + ann.toY) / 2f
                             canvas.drawText(valueStr, midX + cosO * 18f - 20f, midY + sinO * 18f, textp)
                         }
+                        is PdfAnnotation.AudioAnnotation -> {
+                            val audioStampPaint = Paint().apply {
+                                color = android.graphics.Color.rgb(0, 150, 136) // Teal color
+                                style = Paint.Style.STROKE
+                                strokeWidth = 2f
+                                isAntiAlias = true
+                            }
+                            val bgPaint = Paint().apply {
+                                color = android.graphics.Color.rgb(224, 242, 241) // Light teal
+                                style = Paint.Style.FILL
+                            }
+                            // Draw nice capsule around audio trigger label
+                            val rectF = RectF(ann.x, ann.y, ann.x + 200f, ann.y + 45f)
+                            canvas.drawRoundRect(rectF, 12f, 12f, bgPaint)
+                            canvas.drawRoundRect(rectF, 12f, 12f, audioStampPaint)
+                            
+                            val audioTextPaint = Paint().apply {
+                                color = android.graphics.Color.rgb(0, 77, 64)
+                                textSize = 11f
+                                isFakeBoldText = true
+                                isAntiAlias = true
+                            }
+                            canvas.drawText("🔊 " + ann.label.take(18), ann.x + 10f, ann.y + 28f, audioTextPaint)
+                        }
                     }
                 }
 
@@ -963,5 +987,194 @@ object PdfEngine {
             .replace("<br/>", "\n")
 
         return textToPdf(title, "HTML COMPILE OUT:\n$cleanText")
+    }
+
+    fun createGermanArabicSampleDocument(): PdfDocumentState {
+        val id = UUID.randomUUID().toString()
+        
+        val page1 = PdfPage(
+            index = 0,
+            width = 1000,
+            height = 1400,
+            textBlocks = listOf(
+                PdfTextBlock(
+                    id = "biling_p1_t1",
+                    text = "المرشد اللغوي المزدوج (العربية الألمانية)",
+                    x = 80f,
+                    y = 100f,
+                    fontSize = 28f,
+                    fontColor = "#004D40",
+                    fontName = "Serif",
+                    width = 840f
+                ),
+                PdfTextBlock(
+                    id = "biling_p1_t2",
+                    text = "Zweisprachiger Leitfaden (Deutsch & Arabisch)",
+                    x = 80f,
+                    y = 150f,
+                    fontSize = 22f,
+                    fontColor = "#00796B",
+                    fontName = "SansSerif",
+                    width = 840f
+                ),
+                PdfTextBlock(
+                    id = "biling_p1_t3",
+                    text = "هذا الكتيب مصمم خصيصاً لاختبار دعم اللغات المزدوجة (RTL للغة العربية و LTR للغة الألمانية) في نفس المستند والسطور، مع دعم التشكيل والخطوط المدمجة والحروف الألمانية الخاصة (مثل ä, ö, ü, ß).",
+                    x = 80f,
+                    y = 220f,
+                    fontSize = 15f,
+                    fontColor = "#37474F",
+                    fontName = "Roboto",
+                    width = 840f
+                ),
+                PdfTextBlock(
+                    id = "biling_p1_t4",
+                    text = "1. جمل عامة (Allgemeine Sätze):",
+                    x = 80f,
+                    y = 310f,
+                    fontSize = 18f,
+                    fontColor = "#D84315",
+                    fontName = "SansSerif",
+                    width = 840f
+                ),
+                PdfTextBlock(
+                    id = "biling_p1_t5",
+                    text = "العربية: صَبَاحُ الخَيْرِ يَا صَدِيقِي العربي! 🇸🇦\n" +
+                           "Deutsch: Guten Morgen, mein arabischer Freund! 🇩🇪",
+                    x = 80f,
+                    y = 360f,
+                    fontSize = 16f,
+                    fontColor = "#263238",
+                    fontName = "Roboto",
+                    width = 840f
+                ),
+                PdfTextBlock(
+                    id = "biling_p1_t6",
+                    text = "العربية: كَيْفَ حَالُكَ اليَوْمَ؟ هَلْ كُلُّ شَيْءٍ بِخَيْرٍ؟\n" +
+                           "Deutsch: Wie geht es dir heute? Ist alles in Ordnung?",
+                    x = 80f,
+                    y = 440f,
+                    fontSize = 16f,
+                    fontColor = "#263238",
+                    fontName = "Roboto",
+                    width = 840f
+                ),
+                PdfTextBlock(
+                    id = "biling_p1_t7",
+                    text = "العربية: تَعْلَمُ اللُّغَةِ الأَلْمَانِيّةِ فِي أَقَلِّ مِنْ شَهْرٍ!\n" +
+                           "Deutsch: Deutsch lernen in weniger als einem Monat!",
+                    x = 80f,
+                    y = 520f,
+                    fontSize = 16f,
+                    fontColor = "#263238",
+                    fontName = "Roboto",
+                    width = 840f
+                ),
+                PdfTextBlock(
+                    id = "biling_p1_t8",
+                    text = "2. الحروف والتشكيل الصوتي الخاص (Sonderzeichen & Umlaute):",
+                    x = 80f,
+                    y = 610f,
+                    fontSize = 18f,
+                    fontColor = "#D84315",
+                    fontName = "SansSerif",
+                    width = 840f
+                ),
+                PdfTextBlock(
+                    id = "biling_p1_t9",
+                    text = "الكلمات الألمانية تحتوي على حروف مخصصة مثل:\n" +
+                           "• ä في الكلمة Mädchen (فتاة)\n" +
+                           "• ö في الكلمة Schön (جميل)\n" +
+                           "• ü في الكلمة Tschüss (وداعاً)\n" +
+                           "• ß في الكلمة Groß (كبير)",
+                    x = 80f,
+                    y = 660f,
+                    fontSize = 16f,
+                    fontColor = "#37474F",
+                    fontName = "Roboto",
+                    width = 840f
+                ),
+                PdfTextBlock(
+                    id = "biling_p1_t10",
+                    text = "3. النصوص التفاعلية ثنائية الاتجاه (Bi-directional Row Test):\n" +
+                           "• نص مدمج ومطور: 'Das Wort الكتاب bedeutet ein Buch auf Deutsch.'\n" +
+                           "• نص مدمج ومطور: 'يُسعدنا لقاؤكم اليوم Guten Tag وكافة الأصدقاء.'",
+                    x = 80f,
+                    y = 800f,
+                    fontSize = 16f,
+                    fontColor = "#004D40",
+                    fontName = "Roboto",
+                    width = 840f
+                ),
+                PdfTextBlock(
+                    id = "biling_p1_t11",
+                    text = "انقر على أيقونات النطق المرفقة بالأسفل أو انقر على أي نص لتفعيل محرك القراءة الآلي ذي الكشف التلقائي للغة.",
+                    x = 80f,
+                    y = 920f,
+                    fontSize = 15f,
+                    fontColor = "#555555",
+                    fontName = "Roboto",
+                    width = 840f
+                )
+            ),
+            annotations = listOf(
+                PdfAnnotation.AudioAnnotation(
+                    id = "audio_de_1",
+                    x = 80f,
+                    y = 1000f,
+                    pageIndex = 0,
+                    audioFilename = "german_guten_morgen.mp3",
+                    label = "🇩🇪 Guten Morgen (Media)",
+                    textToSpeak = "Guten Morgen",
+                    language = "de"
+                ),
+                PdfAnnotation.AudioAnnotation(
+                    id = "audio_ar_1",
+                    x = 500f,
+                    y = 1000f,
+                    pageIndex = 0,
+                    audioFilename = "arabic_guten_morgen.mp3",
+                    label = "🇸🇦 صباح الخير (Media)",
+                    textToSpeak = "صباح الخير يا صديقي العربي",
+                    language = "ar"
+                ),
+                PdfAnnotation.AudioAnnotation(
+                    id = "audio_de_2",
+                    x = 80f,
+                    y = 1100f,
+                    pageIndex = 0,
+                    audioFilename = "german_tschuess.mp3",
+                    label = "🇩🇪 Tschüss (Media)",
+                    textToSpeak = "Tschüss",
+                    language = "de"
+                ),
+                PdfAnnotation.AudioAnnotation(
+                    id = "audio_de_3",
+                    x = 500f,
+                    y = 1100f,
+                    pageIndex = 0,
+                    audioFilename = "german_schoen.mp3",
+                    label = "🇩🇪 Schön & Groß (Media)",
+                    textToSpeak = "Es ist wunderschön und groß",
+                    language = "de"
+                ),
+                PdfAnnotation.Highlight("biling_p1_hl1", 80f, 100f, 0, 480f, 34f, "#4DB6AC")
+            )
+        )
+        
+        return PdfDocumentState(
+            id = id,
+            name = "Bilingual_German_Arabic_Guide.pdf",
+            metadata = PdfMetadata(
+                title = "Learn German & Arabic",
+                author = "System Language Expert",
+                subject = "Bilingual German & Arabic Reader",
+                keywords = "German, Arabic, Bilingual, Audio, Pronunciation, RTL, LTR"
+            ),
+            pages = listOf(page1),
+            bookmarks = listOf(
+                PdfBookmark("Bilingual Main Page", 0)
+            )
+        )
     }
 }
