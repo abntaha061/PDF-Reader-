@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    
+    <!-- Deep dropshadow beneath book -->
+    <path
+        android:fillColor="#33000000"
+        android:pathData="M24,35 C32,31 45,31 52,35 L52,75 C45,71 32,71 24,75 Z 
+                          M56,35 C63,31 76,31 84,35 L84,75 C76,71 63,71 56,75 Z" />
+
+    <!-- Book covers (Crimson red / Gold outline borders) -->
+    <path
+        android:fillColor="#FFD700"
+        android:pathData="M22,31 C31,26 46,26 54,30 C62,26 77,26 86,31 L86,76 C77,71 62,71 54,75 C46,71 31,71 22,76 Z" />
+
+    <!-- Dark Maroon Inner Background -->
+    <path
+        android:fillColor="#4A0E17"
+        android:pathData="M23,32.5 C31.5,27.5 45.5,27.5 53.5,31.5 L53.5,74.5 C45.5,70.5 31.5,70.5 23,74.5 Z" />
+    <path
+        android:fillColor="#4A0E17"
+        android:pathData="M54.5,31.5 C62.5,27.5 76.5,27.5 85,32.5 L85,74.5 C76.5,70.5 62.5,70.5 54.5,74.5 Z" />
+
+    <!-- White Pages -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M25,33 C33,29 46,29 53,33 L53,72 C46,68 33,68 25,72 Z" />
+    <path
+        android:fillColor="#F5F5F5"
+        android:pathData="M55,33 C62,29 75,29 83,33 L83,72 C75,68 62,68 55,72 Z" />
+
+    <!-- Book Spine center line shadow -->
+    <path
+        android:strokeColor="#CCCCCC"
+        android:strokeWidth="1"
+        android:pathData="M54,33 L54,72" />
+
+    <!-- Golden Bookmark hanging down from center spine -->
+    <path
+        android:fillColor="#FFC107"
+        android:pathData="M52,31 L56,31 L56,76 L54,73 L52,76 Z" />
+
+    <!-- PDF Document Graphic on left page -->
+    <path
+        android:fillColor="#E53935"
+        android:pathData="M30,38 L48,38 L48,40 L30,40 Z
+                          M30,44 L44,44 L44,46 L30,46 Z
+                          M30,50 L48,50 L48,52 L30,52 Z
+                          M30,56 L42,56 L42,58 L30,58 Z" />
+
+    <!-- Stylized Red "PDF" box badge on right page -->
+    <path
+        android:fillColor="#E53935"
+        android:pathData="M59,42 Q59,40 61,40 L79,40 Q81,40 81,42 L81,54 Q81,56 79,56 L61,56 Q59,56 59,54 Z" />
+
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M63,45 H67 Q68.5,45 68.5,46.5 Q68.5,48 67,48 H64.5 V52 H63 Z 
+                          M64.5,46.5 H67 Q67.5,46.5 67.5,47 Q67.5,47.5 67,47.5 H64.5 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M70,45 H73.5 Q75.5,45 75.5,48.5 L75.5,48.5 Q75.5,52 73.5,52 H70 Z
+                          M71.5,46.5 H73.5 Q74,46.5 74,48.5 Q74,50.5 73.5,50.5 H71.5 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M77,45 H81 V46.5 H78.5 V48 H80.5 V49.5 H78.5 V52 H77 Z" />
+</vector>

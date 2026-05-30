@@ -1,0 +1,6 @@
+{
+  "name": "PDF Reader",
+  "description": "An advanced PDF reading, rendering, deep-editing, and manipulation platform built in modern Material 3 and Jetpack Compose.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
